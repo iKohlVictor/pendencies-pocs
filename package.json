@@ -7,6 +7,7 @@
     "build": "pnpm -r build",
     "typecheck": "pnpm --filter machine-flow build && pnpm -r typecheck",
     "test": "pnpm --filter machine-flow build && pnpm -r test",
-    "dev": "pnpm --filter machine-flow build && pnpm --filter api start:dev"
+    "dev": "pnpm --filter machine-flow build && pnpm --filter api start:dev",
+    "dev:web": "pnpm --filter web start"
   }
 }

@@ -12,6 +12,7 @@ Monorepo pnpm workspace.
 ```bash
 pnpm install
 pnpm dev          # builda machine-flow e sobe a API em modo watch
+pnpm dev:web      # sobe o front em http://localhost:4200 (proxy /api -> :3000)
 pnpm test         # builda machine-flow e roda os testes de todos os packages
 pnpm typecheck
 pnpm build
