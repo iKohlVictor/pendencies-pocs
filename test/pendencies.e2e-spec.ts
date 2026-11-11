@@ -14,9 +14,9 @@ describe('Pendencies API (e2e)', () => {
   const http = () => request(app.getHttpServer());
 
   /** Pendencies live inside an event, so every test starts by creating one. */
-  const open = async (title = 'Missing invoice') => {
-    const event = await http().post('/events').set(DOCUMENTATION).send({ name: 'Resolve documentation' }).expect(201);
-    const res = await http().post(`/events/${event.body.id}/pendencies`).set(DOCUMENTATION).send({ title }).expect(201);
+  const open = async (type = 'missing_invoice') => {
+    const event = await http().post('/events').set(DOCUMENTATION).send({ type: 'ad_hoc' }).expect(201);
+    const res = await http().post(`/events/${event.body.id}/pendencies`).set(DOCUMENTATION).send({ type }).expect(201);
     return res.body.id as string;
   };
 
@@ -33,11 +33,20 @@ describe('Pendencies API (e2e)', () => {
   it('opens a pendency, pending with the branch', async () => {
     const id = await open();
     const res = await http().get(`/pendencies/${id}`).expect(200);
-    expect(res.body).toMatchObject({ id: 'PEND-1', eventId: 'EVT-1', status: 'pending_branch', documents: [], version: 1 });
+    expect(res.body).toMatchObject({
+      id: 'PEND-1',
+      eventId: 'EVT-1',
+      type: 'missing_invoice',
+      flow: 'standard',
+      title: 'Missing invoice',
+      status: 'pending_branch',
+      documents: [],
+      version: 1,
+    });
   });
 
   it('requires an identity', async () => {
-    await http().post('/events').send({ name: 'x' }).expect(401);
+    await http().post('/events').send({ type: 'ad_hoc' }).expect(401);
   });
 
   it('happy path: branch attaches, documentation approves', async () => {
@@ -114,6 +123,33 @@ describe('Pendencies API (e2e)', () => {
     expect(final.body.reason.code).toBe('FINAL_STATE');
 
     await http().get('/pendencies/PEND-999').expect(404);
+  });
+
+  it('a direct-flow type has no exception path', async () => {
+    const id = await open('registration_update');
+
+    const actions = await http().get(`/pendencies/${id}/actions`).set(BRANCH).expect(200);
+    expect(actions.body.actions).toEqual(['ATTACH_DOCUMENT', 'RESOLVE_WITH_COMMENT']);
+
+    const denied = await http()
+      .post(`/pendencies/${id}/request-exception`)
+      .set(BRANCH)
+      .send({ justification: 'supplier deadline' })
+      .expect(409);
+    expect(denied.body.reason.code).toBe('INVALID_EVENT');
+
+    await http().post(`/pendencies/${id}/resolve`).set(BRANCH).send({ comment: 'updated' }).expect(200);
+    const done = await http().post(`/pendencies/${id}/approve`).set(DOCUMENTATION).expect(200);
+    expect(done.body.status).toBe('completed');
+  });
+
+  it('exposes the catalog of pendency types', async () => {
+    const res = await http().get('/pendency-types').expect(200);
+    expect(res.body).toEqual([
+      { id: 'missing_invoice', name: 'Missing invoice', flow: 'standard' },
+      { id: 'unsigned_contract', name: 'Unsigned contract', flow: 'standard' },
+      { id: 'registration_update', name: 'Registration update', flow: 'direct' },
+    ]);
   });
 
   it('keeps the full history', async () => {

@@ -6,6 +6,11 @@ info:
     Demo backend that uses the machine-flow lib to drive two workflows: an event's release
     and the review of each pendency inside it.
 
+    Events and pendencies are typed. An event type sets the event's name and the pendencies created
+    with it; a pendency type sets the pendency's name and the workflow it follows (`standard`, with an
+    exception path through payment scheduling, or `direct`, without it). See `/event-types` and
+    `/pendency-types`.
+
     An event can only be scheduled once all its pendencies are resolved (a guard on the release
     machine), and it is completed when it is `scheduled` AND its pendencies are still all resolved.
 
@@ -14,6 +19,7 @@ info:
 servers:
   - url: http://localhost:3000
 tags:
+  - name: Catalog
   - name: Events
   - name: Event release
   - name: Pendencies
@@ -22,11 +28,51 @@ tags:
   - name: Notifications
 
 paths:
+  /event-types:
+    get:
+      tags: [Catalog]
+      operationId: listEventTypes
+      summary: Event types, with the pendencies each one creates
+      responses:
+        '200':
+          description: The catalog of event types
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id: { $ref: '#/components/schemas/EventType' }
+                    name: { type: string }
+                    pendencyTypes:
+                      type: array
+                      items: { $ref: '#/components/schemas/PendencyType' }
+
+  /pendency-types:
+    get:
+      tags: [Catalog]
+      operationId: listPendencyTypes
+      summary: Pendency types, with the flow each one follows
+      responses:
+        '200':
+          description: The catalog of pendency types
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id: { $ref: '#/components/schemas/PendencyType' }
+                    name: { type: string }
+                    flow: { $ref: '#/components/schemas/PendencyFlow' }
+
   /events:
     post:
       tags: [Events]
       operationId: openEvent
-      summary: Open an event (born not scheduled)
+      summary: Open an event of a type (born not scheduled, with the type's pendencies already created)
       parameters:
         - $ref: '#/components/parameters/UserIdScheduling'
         - $ref: '#/components/parameters/RolesScheduling'
@@ -36,14 +82,17 @@ paths:
           application/json:
             schema:
               type: object
-              required: [name]
+              required: [type]
               properties:
-                name: { type: string }
-            example: { name: Resolver documentações }
+                type: { $ref: '#/components/schemas/EventType' }
+                name:
+                  type: string
+                  description: Optional. Defaults to the type's name.
+            example: { type: resolve_documentation }
       responses:
         '201': { $ref: '#/components/responses/Event' }
         '401': { $ref: '#/components/responses/Unauthorized' }
-        '422': { $ref: '#/components/responses/MissingField' }
+        '422': { $ref: '#/components/responses/InvalidValue' }
     get:
       tags: [Events]
       operationId: listEvents
@@ -72,7 +121,7 @@ paths:
     post:
       tags: [Events]
       operationId: openPendencyInEvent
-      summary: Open a pendency inside the event (born pending with the branch)
+      summary: Add one more pendency to the event by hand (born pending with the branch)
       parameters:
         - $ref: '#/components/parameters/EventId'
         - $ref: '#/components/parameters/UserIdDocumentation'
@@ -83,15 +132,18 @@ paths:
           application/json:
             schema:
               type: object
-              required: [title]
+              required: [type]
               properties:
-                title: { type: string }
-            example: { title: Nota fiscal ausente }
+                type: { $ref: '#/components/schemas/PendencyType' }
+                title:
+                  type: string
+                  description: Optional. Defaults to the type's name.
+            example: { type: missing_invoice }
       responses:
         '201': { $ref: '#/components/responses/Pendency' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
-        '422': { $ref: '#/components/responses/MissingField' }
+        '422': { $ref: '#/components/responses/InvalidValue' }
     get:
       tags: [Events]
       operationId: listEventPendencies
@@ -300,6 +352,7 @@ paths:
       tags: [Branch actions]
       operationId: requestException
       summary: Branch requests an exception (goes to payment scheduling first)
+      description: Only for pendencies whose type follows the `standard` flow. On a `direct` flow it answers 409 `INVALID_EVENT`.
       parameters:
         - $ref: '#/components/parameters/PendencyId'
         - $ref: '#/components/parameters/UserIdBranch'
@@ -469,6 +522,17 @@ components:
             error: MissingFieldError
             message: Field "reason" is required
             field: reason
+    InvalidValue:
+      description: Unknown or missing type
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example:
+            statusCode: 422
+            error: InvalidValueError
+            message: 'Field "type" must be one of: resolve_documentation, supplier_onboarding, ad_hoc'
+            field: type
+            allowed: [resolve_documentation, supplier_onboarding, ad_hoc]
     GuardFailed:
       description: The state machine refused the action because the data does not allow it (`GUARD_FAILED`)
       content:
@@ -502,6 +566,15 @@ components:
               failed: ['role:payment_scheduling']
 
   schemas:
+    EventType:
+      type: string
+      enum: [resolve_documentation, supplier_onboarding, ad_hoc]
+    PendencyType:
+      type: string
+      enum: [missing_invoice, unsigned_contract, registration_update]
+    PendencyFlow:
+      type: string
+      enum: [standard, direct]
     Role:
       type: string
       enum: [branch, documentation_analysis, payment_scheduling]
@@ -528,10 +601,12 @@ components:
         detail: { type: string }
     Pendency:
       type: object
-      required: [id, eventId, title, status, documents, history, version]
+      required: [id, eventId, type, flow, title, status, documents, history, version]
       properties:
         id: { type: string, example: PEND-1 }
         eventId: { type: string, example: EVT-1 }
+        type: { $ref: '#/components/schemas/PendencyType' }
+        flow: { $ref: '#/components/schemas/PendencyFlow' }
         title: { type: string }
         status: { $ref: '#/components/schemas/Status' }
         documents:
@@ -556,9 +631,10 @@ components:
       enum: [START_ANALYSIS, RETURN, SCHEDULE]
     Event:
       type: object
-      required: [id, name, releaseStatus, pendencies, completed, history, version]
+      required: [id, type, name, releaseStatus, pendencies, completed, history, version]
       properties:
         id: { type: string, example: EVT-1 }
+        type: { $ref: '#/components/schemas/EventType' }
         name: { type: string }
         releaseStatus: { $ref: '#/components/schemas/ReleaseStatus' }
         pendencies:
@@ -608,6 +684,9 @@ components:
         error: { type: string }
         message: { type: string }
         field: { type: string }
+        allowed:
+          type: array
+          items: { type: string }
         reason:
           type: object
           description: Typed error returned by machine-flow

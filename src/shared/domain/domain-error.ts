@@ -34,6 +34,17 @@ export class MissingFieldError extends DomainError {
   }
 }
 
+/** A field came with a value outside the allowed set (e.g. an unknown type). */
+export class InvalidValueError extends DomainError {
+  constructor(
+    public readonly field: string,
+    public readonly value: string | undefined,
+    public readonly allowed: readonly string[],
+  ) {
+    super(`Field "${field}" must be one of: ${allowed.join(', ')}`);
+  }
+}
+
 /** Someone else changed the record between our read and our write. */
 export class ConcurrencyError extends DomainError {
   constructor(

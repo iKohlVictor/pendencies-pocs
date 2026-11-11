@@ -2,6 +2,7 @@ import { Body, Controller, Get, HttpCode, Inject, Param, Post, Query, UseFilters
 import type { Actor } from 'machine-flow';
 import { NOTIFICATION_OUTBOX, type NotificationOutbox } from '../application/notification-outbox.js';
 import { PendenciesService } from '../application/pendencies.service.js';
+import { listPendencyTypes } from '../domain/pendency-type.js';
 import { CurrentActor } from '../../shared/http/current-actor.decorator.js';
 import { DomainErrorFilter } from '../../shared/http/domain-error.filter.js';
 
@@ -60,6 +61,15 @@ export class PendenciesController {
   @HttpCode(200)
   reject(@Param('id') id: string, @CurrentActor() actor: Actor, @Body() body: { reason?: string } = {}) {
     return this.service.reject(id, actor, body.reason);
+  }
+}
+
+@Controller('pendency-types')
+export class PendencyTypesController {
+  /** The catalog: each type's default name and the flow it follows. */
+  @Get()
+  list() {
+    return listPendencyTypes();
   }
 }
 

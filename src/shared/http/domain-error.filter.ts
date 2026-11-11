@@ -5,6 +5,7 @@ import {
   ActionDeniedError,
   ConcurrencyError,
   DomainError,
+  InvalidValueError,
   MissingFieldError,
   NotFoundError,
 } from '../domain/domain-error.js';
@@ -34,6 +35,9 @@ function toHttp(error: DomainError): { status: HttpStatus; body?: object } {
   if (error instanceof NotFoundError) return { status: HttpStatus.NOT_FOUND };
   if (error instanceof MissingFieldError) {
     return { status: HttpStatus.UNPROCESSABLE_ENTITY, body: { field: error.field } };
+  }
+  if (error instanceof InvalidValueError) {
+    return { status: HttpStatus.UNPROCESSABLE_ENTITY, body: { field: error.field, allowed: error.allowed } };
   }
   if (error instanceof ConcurrencyError) return { status: HttpStatus.CONFLICT };
   return { status: HttpStatus.BAD_REQUEST };

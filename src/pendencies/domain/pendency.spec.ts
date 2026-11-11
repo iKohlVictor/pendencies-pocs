@@ -7,11 +7,39 @@ const branch: Actor = { id: 'ana', roles: [ROLE.branch] };
 const scheduling: Actor = { id: 'paula', roles: [ROLE.paymentScheduling] };
 const documentation: Actor = { id: 'diego', roles: [ROLE.documentationAnalysis] };
 
-const open = () => Pendency.open('PEND-1', 'EVT-1', 'Missing invoice', documentation);
+const open = () => Pendency.open('PEND-1', 'EVT-1', 'missing_invoice', documentation);
 
 describe('Pendency', () => {
-  it('is born pending with the branch', () => {
-    expect(open().status).toBe('pending_branch');
+  it('is born pending with the branch, named after its type', () => {
+    expect(open().toSnapshot()).toMatchObject({
+      status: 'pending_branch',
+      type: 'missing_invoice',
+      flow: 'standard',
+      title: 'Missing invoice',
+    });
+  });
+
+  it('accepts a custom title', () => {
+    const p = Pendency.open('PEND-1', 'EVT-1', 'missing_invoice', documentation, 'Invoice 4411 missing');
+    expect(p.toSnapshot().title).toBe('Invoice 4411 missing');
+  });
+
+  it('a direct-flow type has no exception path', () => {
+    const p = Pendency.open('PEND-1', 'EVT-1', 'registration_update', documentation);
+    expect(p.toSnapshot().flow).toBe('direct');
+    expect(p.availableActions(branch)).toEqual(['ATTACH_DOCUMENT', 'RESOLVE_WITH_COMMENT']);
+
+    try {
+      p.requestException(branch, 'supplier deadline');
+      throw new Error('expected a denial');
+    } catch (error) {
+      expect(error).toBeInstanceOf(ActionDeniedError);
+      expect((error as ActionDeniedError).reason.code).toBe('INVALID_EVENT');
+    }
+
+    p.resolveWithComment(branch, 'updated in the registry');
+    p.approve(documentation);
+    expect(p.status).toBe('completed');
   });
 
   it('attach or resolve goes straight to documentation review', () => {

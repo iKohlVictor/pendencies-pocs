@@ -7,7 +7,7 @@ import { isEventCompleted, summarizePendencies } from './event-completion.js';
 const scheduling: Actor = { id: 'paula', roles: [ROLE.paymentScheduling] };
 const branch: Actor = { id: 'ana', roles: [ROLE.branch] };
 
-const open = () => BusinessEvent.open('EVT-1', 'Resolve documentation', scheduling);
+const open = () => BusinessEvent.open('EVT-1', 'resolve_documentation', scheduling);
 
 const denial = (fn: () => void) => {
   try {
@@ -20,8 +20,13 @@ const denial = (fn: () => void) => {
 };
 
 describe('BusinessEvent release workflow', () => {
-  it('is born not scheduled', () => {
-    expect(open().releaseStatus).toBe('not_scheduled');
+  it('is born not scheduled, named after its type', () => {
+    expect(open().toSnapshot()).toMatchObject({
+      releaseStatus: 'not_scheduled',
+      type: 'resolve_documentation',
+      name: 'Resolve documentation',
+    });
+    expect(BusinessEvent.open('EVT-2', 'ad_hoc', scheduling, 'March closing').toSnapshot().name).toBe('March closing');
   });
 
   it('payment scheduling analyses and schedules when pendencies are resolved', () => {

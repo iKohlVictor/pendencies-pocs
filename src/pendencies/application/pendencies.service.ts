@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { Actor } from 'machine-flow';
 import { Pendency, type PendencySnapshot } from '../domain/pendency.js';
+import type { PendencyTypeId } from '../domain/pendency-type.js';
 import { NotFoundError } from '../../shared/domain/domain-error.js';
 import type { PendencyAction, PendencyEffect } from '../domain/pendency.machine.js';
 import { PENDENCY_REPOSITORY, type PendencyRepository } from '../domain/pendency.repository.js';
@@ -18,8 +19,8 @@ export class PendenciesService {
   ) {}
 
   /** Called by the events module, which has already checked that the event exists. */
-  async open(actor: Actor, eventId: string, title: string | undefined): Promise<PendencySnapshot> {
-    const pendency = Pendency.open(await this.pendencies.nextId(), eventId, title ?? '', actor);
+  async open(actor: Actor, eventId: string, type: PendencyTypeId, title?: string): Promise<PendencySnapshot> {
+    const pendency = Pendency.open(await this.pendencies.nextId(), eventId, type, actor, title);
     await this.pendencies.save(pendency);
     return (await this.load(pendency.id)).toSnapshot();
   }

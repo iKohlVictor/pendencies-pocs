@@ -13,13 +13,14 @@ describe('Events API (e2e)', () => {
   let app: INestApplication<App>;
   const http = () => request(app.getHttpServer());
 
-  const openEvent = async () => {
-    const res = await http().post('/events').set(SCHEDULING).send({ name: 'Resolve documentation' }).expect(201);
+  /** `ad_hoc` creates no pendencies, which keeps the release tests focused. */
+  const openEvent = async (type = 'ad_hoc') => {
+    const res = await http().post('/events').set(SCHEDULING).send({ type }).expect(201);
     return res.body.id as string;
   };
 
-  const openPendency = async (eventId: string, title: string) => {
-    const res = await http().post(`/events/${eventId}/pendencies`).set(DOCUMENTATION).send({ title }).expect(201);
+  const openPendency = async (eventId: string, type: string) => {
+    const res = await http().post(`/events/${eventId}/pendencies`).set(DOCUMENTATION).send({ type }).expect(201);
     return res.body.id as string;
   };
 
@@ -44,11 +45,83 @@ describe('Events API (e2e)', () => {
     await app.close();
   });
 
-  it('is born not scheduled, with pendencies OK while it has none', async () => {
-    const res = await http().post('/events').set(SCHEDULING).send({ name: 'Resolve documentation' }).expect(201);
+  it('creating a typed event names it and creates the pendencies of its type', async () => {
+    const res = await http().post('/events').set(SCHEDULING).send({ type: 'resolve_documentation' }).expect(201);
     expect(res.body).toMatchObject({
       id: 'EVT-1',
+      type: 'resolve_documentation',
       name: 'Resolve documentation',
+      releaseStatus: 'not_scheduled',
+      pendencies: { status: 'pending', total: 2, resolved: 0 },
+      completed: false,
+    });
+
+    const pendencies = await http().get('/events/EVT-1/pendencies').expect(200);
+    expect(pendencies.body.map((p: Record<string, string>) => [p.id, p.type, p.title, p.flow, p.status])).toEqual([
+      ['PEND-1', 'missing_invoice', 'Missing invoice', 'standard', 'pending_branch'],
+      ['PEND-2', 'unsigned_contract', 'Unsigned contract', 'standard', 'pending_branch'],
+    ]);
+  });
+
+  it('each event type brings its own pendencies and flows', async () => {
+    const eventId = await openEvent('supplier_onboarding');
+    const pendencies = await http().get(`/events/${eventId}/pendencies`).expect(200);
+    expect(pendencies.body.map((p: Record<string, string>) => [p.type, p.flow])).toEqual([
+      ['registration_update', 'direct'],
+      ['unsigned_contract', 'standard'],
+    ]);
+  });
+
+  it('a typed event completes once its predefined pendencies are resolved and it is scheduled', async () => {
+    const eventId = await openEvent('resolve_documentation');
+    await http().post(`/events/${eventId}/start-analysis`).set(SCHEDULING).expect(200);
+
+    await resolvePendency('PEND-1');
+    await http().post(`/events/${eventId}/schedule`).set(SCHEDULING).expect(422); // PEND-2 still open
+
+    await resolvePendency('PEND-2');
+    const done = await http().post(`/events/${eventId}/schedule`).set(SCHEDULING).expect(200);
+    expect(done.body).toMatchObject({ pendencies: { status: 'ok', total: 2, resolved: 2 }, completed: true });
+  });
+
+  it('accepts a custom name and extra pendencies added by hand', async () => {
+    const res = await http().post('/events').set(SCHEDULING).send({ type: 'ad_hoc', name: 'March closing' }).expect(201);
+    expect(res.body).toMatchObject({ type: 'ad_hoc', name: 'March closing', pendencies: { total: 0 } });
+
+    const extra = await http()
+      .post(`/events/${res.body.id}/pendencies`)
+      .set(DOCUMENTATION)
+      .send({ type: 'missing_invoice', title: 'Invoice 4411 missing' })
+      .expect(201);
+    expect(extra.body).toMatchObject({ type: 'missing_invoice', title: 'Invoice 4411 missing' });
+  });
+
+  it('rejects unknown types', async () => {
+    const event = await http().post('/events').set(SCHEDULING).send({ type: 'nope' }).expect(422);
+    expect(event.body).toMatchObject({ error: 'InvalidValueError', field: 'type' });
+    expect(event.body.allowed).toEqual(['resolve_documentation', 'supplier_onboarding', 'ad_hoc']);
+
+    await http().post('/events').set(SCHEDULING).send({}).expect(422);
+
+    const eventId = await openEvent();
+    const pendency = await http().post(`/events/${eventId}/pendencies`).set(DOCUMENTATION).send({ type: 'nope' }).expect(422);
+    expect(pendency.body.allowed).toEqual(['missing_invoice', 'unsigned_contract', 'registration_update']);
+  });
+
+  it('exposes the catalog of event types', async () => {
+    const res = await http().get('/event-types').expect(200);
+    expect(res.body).toContainEqual({
+      id: 'resolve_documentation',
+      name: 'Resolve documentation',
+      pendencyTypes: ['missing_invoice', 'unsigned_contract'],
+    });
+  });
+
+  it('an ad hoc event is born not scheduled, with pendencies OK while it has none', async () => {
+    const res = await http().post('/events').set(SCHEDULING).send({ type: 'ad_hoc' }).expect(201);
+    expect(res.body).toMatchObject({
+      id: 'EVT-1',
+      name: 'Ad hoc event',
       releaseStatus: 'not_scheduled',
       pendencies: { status: 'ok', total: 0, resolved: 0 },
       completed: false,
@@ -57,8 +130,8 @@ describe('Events API (e2e)', () => {
 
   it('groups its pendencies and derives the pendencies status from them', async () => {
     const eventId = await openEvent();
-    const first = await openPendency(eventId, 'Missing invoice');
-    await openPendency(eventId, 'Unsigned contract');
+    const first = await openPendency(eventId, 'missing_invoice');
+    await openPendency(eventId, 'unsigned_contract');
 
     const list = await http().get(`/events/${eventId}/pendencies`).expect(200);
     expect(list.body.map((p: { title: string }) => p.title)).toEqual(['Missing invoice', 'Unsigned contract']);
@@ -74,7 +147,7 @@ describe('Events API (e2e)', () => {
   it('pendencies of another event do not count', async () => {
     const a = await openEvent();
     const b = await openEvent();
-    await openPendency(b, 'Missing invoice');
+    await openPendency(b, 'missing_invoice');
 
     expect((await http().get(`/events/${a}`)).body.pendencies.status).toBe('ok');
     expect((await http().get(`/events/${b}`)).body.pendencies.status).toBe('pending');
@@ -123,7 +196,7 @@ describe('Events API (e2e)', () => {
 
   it('cannot schedule while a pendency is open; resolving it unlocks scheduling and completes the event', async () => {
     const eventId = await openEvent();
-    const pendencyId = await openPendency(eventId, 'Missing invoice');
+    const pendencyId = await openPendency(eventId, 'missing_invoice');
 
     // analysis does not depend on pendencies
     await http().post(`/events/${eventId}/start-analysis`).set(SCHEDULING).expect(200);
@@ -147,7 +220,7 @@ describe('Events API (e2e)', () => {
   it('a pendency opened after scheduling makes the event incomplete again', async () => {
     const eventId = await openEvent();
     await schedule(eventId);
-    await openPendency(eventId, 'Unsigned contract');
+    await openPendency(eventId, 'unsigned_contract');
 
     const res = await http().get(`/events/${eventId}`).expect(200);
     expect(res.body).toMatchObject({ releaseStatus: 'scheduled', pendencies: { status: 'pending' }, completed: false });
@@ -155,7 +228,7 @@ describe('Events API (e2e)', () => {
 
   it('all pendencies resolved but not scheduled is NOT completed', async () => {
     const eventId = await openEvent();
-    await resolvePendency(await openPendency(eventId, 'Missing invoice'));
+    await resolvePendency(await openPendency(eventId, 'missing_invoice'));
 
     const res = await http().get(`/events/${eventId}`).expect(200);
     expect(res.body).toMatchObject({ releaseStatus: 'not_scheduled', pendencies: { status: 'ok' }, completed: false });
@@ -163,11 +236,7 @@ describe('Events API (e2e)', () => {
 
   it('404 for unknown events, including when opening a pendency', async () => {
     await http().get('/events/EVT-999').expect(404);
-    await http().post('/events/EVT-999/pendencies').set(DOCUMENTATION).send({ title: 'x' }).expect(404);
+    await http().post('/events/EVT-999/pendencies').set(DOCUMENTATION).send({ type: 'missing_invoice' }).expect(404);
   });
 
-  it('requires a name', async () => {
-    const res = await http().post('/events').set(SCHEDULING).send({}).expect(422);
-    expect(res.body.field).toBe('name');
-  });
 });

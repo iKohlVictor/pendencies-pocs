@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import type { Actor } from 'machine-flow';
 import { PendenciesService } from '../../pendencies/application/pendencies.service.js';
 import { isPendencyResolved, type PendencySnapshot } from '../../pendencies/domain/pendency.js';
+import { parsePendencyType } from '../../pendencies/domain/pendency-type.js';
 import { NotFoundError } from '../../shared/domain/domain-error.js';
 import { BusinessEvent, type BusinessEventSnapshot } from '../domain/business-event.js';
 import {
@@ -12,6 +13,7 @@ import {
 } from '../domain/event-completion.js';
 import type { ReleaseAction } from '../domain/event-release.machine.js';
 import { EVENT_REPOSITORY, type EventRepository } from '../domain/event.repository.js';
+import { EVENT_TYPES, parseEventType } from '../domain/event-type.js';
 
 /** What the API returns: the stored event plus everything derived from its pendencies. */
 export interface EventView extends BusinessEventSnapshot {
@@ -27,9 +29,15 @@ export class EventsService {
     private readonly pendencies: PendenciesService,
   ) {}
 
-  async open(actor: Actor, name: string | undefined): Promise<EventView> {
-    const event = BusinessEvent.open(await this.events.nextId(), name ?? '', actor);
+  /** Creates the event and, right after, every pendency its type predefines. */
+  async open(actor: Actor, type: string | undefined, name?: string): Promise<EventView> {
+    const eventType = parseEventType(type);
+    const event = BusinessEvent.open(await this.events.nextId(), eventType, actor, name);
     await this.events.save(event);
+
+    for (const pendencyType of EVENT_TYPES[eventType].pendencyTypes) {
+      await this.pendencies.open(actor, event.id, pendencyType);
+    }
     return this.get(event.id);
   }
 
@@ -48,9 +56,10 @@ export class EventsService {
 
   // --- pendencies inside the event ---
 
-  async openPendency(id: string, actor: Actor, title: string | undefined): Promise<PendencySnapshot> {
+  /** Adds one more pendency by hand, of any known type. */
+  async openPendency(id: string, actor: Actor, type: string | undefined, title?: string): Promise<PendencySnapshot> {
     await this.load(id); // 404 if the event does not exist
-    return this.pendencies.open(actor, id, title);
+    return this.pendencies.open(actor, id, parsePendencyType(type), title);
   }
 
   async listPendencies(id: string): Promise<PendencySnapshot[]> {

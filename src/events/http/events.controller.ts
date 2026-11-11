@@ -3,6 +3,7 @@ import type { Actor } from 'machine-flow';
 import { CurrentActor } from '../../shared/http/current-actor.decorator.js';
 import { DomainErrorFilter } from '../../shared/http/domain-error.filter.js';
 import { EventsService } from '../application/events.service.js';
+import { listEventTypes } from '../domain/event-type.js';
 
 @Controller('events')
 @UseFilters(DomainErrorFilter)
@@ -10,8 +11,8 @@ export class EventsController {
   constructor(private readonly service: EventsService) {}
 
   @Post()
-  open(@CurrentActor() actor: Actor, @Body() body: { name?: string } = {}) {
-    return this.service.open(actor, body.name);
+  open(@CurrentActor() actor: Actor, @Body() body: { type?: string; name?: string } = {}) {
+    return this.service.open(actor, body.type, body.name);
   }
 
   @Get()
@@ -31,8 +32,12 @@ export class EventsController {
   }
 
   @Post(':id/pendencies')
-  openPendency(@Param('id') id: string, @CurrentActor() actor: Actor, @Body() body: { title?: string } = {}) {
-    return this.service.openPendency(id, actor, body.title);
+  openPendency(
+    @Param('id') id: string,
+    @CurrentActor() actor: Actor,
+    @Body() body: { type?: string; title?: string } = {},
+  ) {
+    return this.service.openPendency(id, actor, body.type, body.title);
   }
 
   @Get(':id/pendencies')
@@ -56,5 +61,14 @@ export class EventsController {
   @HttpCode(200)
   schedule(@Param('id') id: string, @CurrentActor() actor: Actor) {
     return this.service.schedule(id, actor);
+  }
+}
+
+@Controller('event-types')
+export class EventTypesController {
+  /** The catalog: each type's default name and the pendencies it creates. */
+  @Get()
+  list() {
+    return listEventTypes();
   }
 }

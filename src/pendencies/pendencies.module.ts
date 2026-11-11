@@ -2,12 +2,16 @@ import { Module } from '@nestjs/common';
 import { NOTIFICATION_OUTBOX } from './application/notification-outbox.js';
 import { PendenciesService } from './application/pendencies.service.js';
 import { PENDENCY_REPOSITORY } from './domain/pendency.repository.js';
-import { NotificationsController, PendenciesController } from './http/pendencies.controller.js';
+import {
+  NotificationsController,
+  PendenciesController,
+  PendencyTypesController,
+} from './http/pendencies.controller.js';
 import { InMemoryNotificationOutbox } from './infrastructure/in-memory-notification.outbox.js';
 import { InMemoryPendencyRepository } from './infrastructure/in-memory-pendency.repository.js';
 
 @Module({
-  controllers: [PendenciesController, NotificationsController],
+  controllers: [PendenciesController, PendencyTypesController, NotificationsController],
   exports: [PendenciesService],
   providers: [
     PendenciesService,
