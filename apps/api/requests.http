@@ -8,14 +8,52 @@ GET {{base}}/event-types
 ### Catálogo: tipos de pendência (nome + fluxo que cada um segue)
 GET {{base}}/pendency-types
 
+### ==================== Parte 0: perfis e usuários ====================
+### O caller manda só o x-user-id; os papéis vêm do perfil do usuário.
+
+### Perfis padrão: PRF-1 Filial (branch), PRF-2 Análise de documentação, PRF-3 Programação de pagamento
+GET {{base}}/profiles
+
+### Ana (filial) -> USR-1
+POST {{base}}/users
+content-type: application/json
+
+{ "name": "Ana", "profileId": "PRF-1" }
+
+### Paula (programação de pagamento) -> USR-2
+POST {{base}}/users
+content-type: application/json
+
+{ "name": "Paula", "profileId": "PRF-3" }
+
+### Diego (análise de documentação) -> USR-3
+POST {{base}}/users
+content-type: application/json
+
+{ "name": "Diego", "profileId": "PRF-2" }
+
+### Perfil novo com mais de um papel (opcional)
+POST {{base}}/profiles
+content-type: application/json
+
+{ "name": "Supervisor", "roles": ["documentation_analysis", "payment_scheduling"] }
+
+### Troca o perfil de um usuário (os papéis mudam junto)
+# PUT {{base}}/users/USR-3/profile
+# content-type: application/json
+#
+# { "profileId": "PRF-4" }
+
+### Usuários de um perfil
+GET {{base}}/users?profileId=PRF-1
+
 ### ==================== Parte 1: evento tipado e suas pendências ====================
 
 ### 1. Abre um evento do tipo resolve_documentation.
 ### Ele já nasce com nome e com as pendências do tipo: PEND-1 (missing_invoice) e PEND-2 (unsigned_contract).
 POST {{base}}/events
 content-type: application/json
-x-user-id: paula
-x-user-roles: payment_scheduling
+x-user-id: USR-2
 
 { "type": "resolve_documentation" }
 
@@ -24,60 +62,51 @@ GET {{base}}/events/EVT-1/pendencies
 
 ### 3. O que a filial pode fazer na PEND-1?
 GET {{base}}/pendencies/PEND-1/actions
-x-user-id: ana
-x-user-roles: branch
+x-user-id: USR-1
 
 ### 4. Filial solicita exceção na PEND-1 -> vai para programação de pagamento
 POST {{base}}/pendencies/PEND-1/request-exception
 content-type: application/json
-x-user-id: ana
-x-user-roles: branch
+x-user-id: USR-1
 
 { "justification": "fornecedor só emite a nota dia 20" }
 
 ### 5. Documentação tenta aprovar antes da hora -> 403 FORBIDDEN
 POST {{base}}/pendencies/PEND-1/approve
-x-user-id: diego
-x-user-roles: documentation_analysis
+x-user-id: USR-3
 
 ### 6. Programação aprova a exceção -> vai para análise de documentação
 POST {{base}}/pendencies/PEND-1/approve
-x-user-id: paula
-x-user-roles: payment_scheduling
+x-user-id: USR-2
 
 ### 7. Documentação rejeita sem motivo -> 422
 POST {{base}}/pendencies/PEND-1/reject
 content-type: application/json
-x-user-id: diego
-x-user-roles: documentation_analysis
+x-user-id: USR-3
 
 {}
 
 ### 8. Documentação rejeita com motivo -> volta para a filial
 POST {{base}}/pendencies/PEND-1/reject
 content-type: application/json
-x-user-id: diego
-x-user-roles: documentation_analysis
+x-user-id: USR-3
 
 { "reason": "falta o comprovante" }
 
 ### 9. Filial anexa o documento -> direto para análise de documentação
 POST {{base}}/pendencies/PEND-1/attach-document
 content-type: application/json
-x-user-id: ana
-x-user-roles: branch
+x-user-id: USR-1
 
 { "documentId": "DOC-9" }
 
 ### 10. Documentação aprova -> PEND-1 concluída
 POST {{base}}/pendencies/PEND-1/approve
-x-user-id: diego
-x-user-roles: documentation_analysis
+x-user-id: USR-3
 
 ### 11. Qualquer ação depois disso -> 409 FINAL_STATE
 POST {{base}}/pendencies/PEND-1/approve
-x-user-id: diego
-x-user-roles: documentation_analysis
+x-user-id: USR-3
 
 ### ==================== Parte 2: liberação do evento ====================
 
@@ -86,73 +115,62 @@ GET {{base}}/events/EVT-1
 
 ### 13. Filial tenta mexer na liberação -> 403 FORBIDDEN
 POST {{base}}/events/EVT-1/start-analysis
-x-user-id: ana
-x-user-roles: branch
+x-user-id: USR-1
 
 ### 14. Programação inicia a análise -> in_analysis (não depende das pendências)
 POST {{base}}/events/EVT-1/start-analysis
-x-user-id: paula
-x-user-roles: payment_scheduling
+x-user-id: USR-2
 
 ### 15. Programação tenta programar com a PEND-2 em aberto -> 422 GUARD_FAILED (pendencies-resolved)
 POST {{base}}/events/EVT-1/schedule
-x-user-id: paula
-x-user-roles: payment_scheduling
+x-user-id: USR-2
 
 ### 16. Ações disponíveis: só RETURN (SCHEDULE fica escondido enquanto houver pendência)
 GET {{base}}/events/EVT-1/actions
-x-user-id: paula
-x-user-roles: payment_scheduling
+x-user-id: USR-2
 
 ### 17. Resolve a PEND-2: filial comenta...
 POST {{base}}/pendencies/PEND-2/resolve
 content-type: application/json
-x-user-id: ana
-x-user-roles: branch
+x-user-id: USR-1
 
 { "comment": "contrato assinado e enviado" }
 
 ### 18. ...e documentação aprova
 POST {{base}}/pendencies/PEND-2/approve
-x-user-id: diego
-x-user-roles: documentation_analysis
+x-user-id: USR-3
 
 ### 19. Agora programa -> scheduled e completed: true
 POST {{base}}/events/EVT-1/schedule
-x-user-id: paula
-x-user-roles: payment_scheduling
+x-user-id: USR-2
 
 ### ==================== Parte 3: outros tipos ====================
 
 ### 20. Evento supplier_onboarding: cria PEND-3 (registration_update, fluxo direct) e PEND-4 (unsigned_contract)
 POST {{base}}/events
 content-type: application/json
-x-user-id: paula
-x-user-roles: payment_scheduling
+x-user-id: USR-2
 
 { "type": "supplier_onboarding" }
 
 ### 21. Fluxo direct não tem exceção -> 409 INVALID_EVENT
 POST {{base}}/pendencies/PEND-3/request-exception
 content-type: application/json
-x-user-id: ana
-x-user-roles: branch
+x-user-id: USR-1
 
 { "justification": "não se aplica" }
 
 ### 22. Evento avulso (ad_hoc), sem pendências pré-definidas e com nome próprio
 POST {{base}}/events
 content-type: application/json
-x-user-id: paula
-x-user-roles: payment_scheduling
+x-user-id: USR-2
 
 { "type": "ad_hoc", "name": "Fechamento de março" }
 
 ### 23. Pendência adicionada à mão em um evento (título opcional; sem ele usa o nome do tipo)
 POST {{base}}/events/EVT-3/pendencies
 content-type: application/json
-x-user-id: diego
-x-user-roles: documentation_analysis
+x-user-id: USR-3
 
 { "type": "missing_invoice", "title": "Nota 4411 ausente" }
 

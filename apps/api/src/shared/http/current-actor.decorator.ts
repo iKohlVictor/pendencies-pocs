@@ -2,21 +2,16 @@ import { createParamDecorator, UnauthorizedException, type ExecutionContext } fr
 import type { Request } from 'express';
 import type { Actor } from 'machine-flow';
 
+/** A request after the users module resolved who is calling. */
+export type ActorRequest = Request & { actor?: Actor };
+
 /**
- * Demo-only identity: the caller says who they are through headers.
- *   x-user-id: ana
- *   x-user-roles: branch            (comma-separated)
- * In a real app this comes from the authenticated session/JWT, never from the client.
+ * Demo-only identity: the caller sends only their user id (`x-user-id: USR-1`).
+ * The users module's ActorGuard looks the user up and fills in the roles of their profile.
+ * In a real app the id comes from the authenticated session/JWT, never from the client.
  */
 export const CurrentActor = createParamDecorator((_: unknown, ctx: ExecutionContext): Actor => {
-  const request = ctx.switchToHttp().getRequest<Request>();
-  const id = request.header('x-user-id')?.trim();
-  if (!id) throw new UnauthorizedException('Missing x-user-id header');
-
-  const roles = (request.header('x-user-roles') ?? '')
-    .split(',')
-    .map((role) => role.trim())
-    .filter(Boolean);
-
-  return { id, roles };
+  const actor = ctx.switchToHttp().getRequest<ActorRequest>().actor;
+  if (!actor) throw new UnauthorizedException('Missing x-user-id header');
+  return actor;
 });

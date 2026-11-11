@@ -3,11 +3,11 @@ import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import type { App } from 'supertest/types.js';
 import { AppModule } from '../src/app.module.js';
+import { seedUsers, type Identity } from './support/users.js';
 
-const as = (id: string, role: string) => ({ 'x-user-id': id, 'x-user-roles': role });
-const BRANCH = as('ana', 'branch');
-const SCHEDULING = as('paula', 'payment_scheduling');
-const DOCUMENTATION = as('diego', 'documentation_analysis');
+let BRANCH: Identity;
+let SCHEDULING: Identity;
+let DOCUMENTATION: Identity;
 
 describe('Pendencies API (e2e)', () => {
   let app: INestApplication<App>;
@@ -24,6 +24,7 @@ describe('Pendencies API (e2e)', () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
     app = moduleRef.createNestApplication();
     await app.init();
+    ({ BRANCH, SCHEDULING, DOCUMENTATION } = await seedUsers(app));
   });
 
   afterEach(async () => {

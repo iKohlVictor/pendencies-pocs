@@ -14,8 +14,9 @@ info:
     An event can only be scheduled once all its pendencies are resolved (a guard on the release
     machine), and it is completed when it is `scheduled` AND its pendencies are still all resolved.
 
-    Identity is demo-only and travels in two headers:
-    `x-user-id` (any name) and `x-user-roles` (`branch`, `documentation_analysis` or `payment_scheduling`).
+    Identity is demo-only: the caller sends only `x-user-id` with the id of a user created through
+    `POST /users`. The roles the workflows check (`branch`, `documentation_analysis`, `payment_scheduling`)
+    come from that user's profile. An unknown id answers 401.
 servers:
   - url: http://localhost:3000
 tags:
@@ -26,6 +27,7 @@ tags:
   - name: Branch actions
   - name: Review actions
   - name: Notifications
+  - name: Users
 
 paths:
   /event-types:
@@ -75,7 +77,6 @@ paths:
       summary: Open an event of a type (born not scheduled, with the type's pendencies already created)
       parameters:
         - $ref: '#/components/parameters/UserIdScheduling'
-        - $ref: '#/components/parameters/RolesScheduling'
       requestBody:
         required: true
         content:
@@ -125,7 +126,6 @@ paths:
       parameters:
         - $ref: '#/components/parameters/EventId'
         - $ref: '#/components/parameters/UserIdDocumentation'
-        - $ref: '#/components/parameters/RolesDocumentation'
       requestBody:
         required: true
         content:
@@ -168,7 +168,6 @@ paths:
       parameters:
         - $ref: '#/components/parameters/EventId'
         - $ref: '#/components/parameters/UserIdScheduling'
-        - $ref: '#/components/parameters/RolesScheduling'
       responses:
         '200':
           description: Available release actions for this actor
@@ -192,7 +191,6 @@ paths:
       parameters:
         - $ref: '#/components/parameters/EventId'
         - $ref: '#/components/parameters/UserIdScheduling'
-        - $ref: '#/components/parameters/RolesScheduling'
       responses:
         '200': { $ref: '#/components/responses/Event' }
         '401': { $ref: '#/components/responses/Unauthorized' }
@@ -208,7 +206,6 @@ paths:
       parameters:
         - $ref: '#/components/parameters/EventId'
         - $ref: '#/components/parameters/UserIdScheduling'
-        - $ref: '#/components/parameters/RolesScheduling'
       requestBody:
         required: false
         content:
@@ -235,7 +232,6 @@ paths:
       parameters:
         - $ref: '#/components/parameters/EventId'
         - $ref: '#/components/parameters/UserIdScheduling'
-        - $ref: '#/components/parameters/RolesScheduling'
       responses:
         '200': { $ref: '#/components/responses/Event' }
         '401': { $ref: '#/components/responses/Unauthorized' }
@@ -277,7 +273,6 @@ paths:
       parameters:
         - $ref: '#/components/parameters/PendencyId'
         - $ref: '#/components/parameters/UserIdBranch'
-        - $ref: '#/components/parameters/RolesBranch'
       responses:
         '200':
           description: Available actions for this actor in the current state
@@ -301,7 +296,6 @@ paths:
       parameters:
         - $ref: '#/components/parameters/PendencyId'
         - $ref: '#/components/parameters/UserIdBranch'
-        - $ref: '#/components/parameters/RolesBranch'
       requestBody:
         required: true
         content:
@@ -328,7 +322,6 @@ paths:
       parameters:
         - $ref: '#/components/parameters/PendencyId'
         - $ref: '#/components/parameters/UserIdBranch'
-        - $ref: '#/components/parameters/RolesBranch'
       requestBody:
         required: true
         content:
@@ -356,7 +349,6 @@ paths:
       parameters:
         - $ref: '#/components/parameters/PendencyId'
         - $ref: '#/components/parameters/UserIdBranch'
-        - $ref: '#/components/parameters/RolesBranch'
       requestBody:
         required: true
         content:
@@ -386,7 +378,6 @@ paths:
       parameters:
         - $ref: '#/components/parameters/PendencyId'
         - $ref: '#/components/parameters/UserIdDocumentation'
-        - $ref: '#/components/parameters/RolesDocumentation'
       responses:
         '200': { $ref: '#/components/responses/Pendency' }
         '401': { $ref: '#/components/responses/Unauthorized' }
@@ -402,7 +393,6 @@ paths:
       parameters:
         - $ref: '#/components/parameters/PendencyId'
         - $ref: '#/components/parameters/UserIdDocumentation'
-        - $ref: '#/components/parameters/RolesDocumentation'
       requestBody:
         required: true
         content:
@@ -440,6 +430,138 @@ paths:
                 type: array
                 items: { $ref: '#/components/schemas/Notification' }
 
+  /profiles:
+    get:
+      tags: [Users]
+      operationId: listProfiles
+      summary: Profiles. Starts with PRF-1 Filial, PRF-2 Análise de documentação, PRF-3 Programação de pagamento
+      responses:
+        '200':
+          description: All profiles
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Profile' }
+    post:
+      tags: [Users]
+      operationId: createProfile
+      summary: Creates a profile with one or more workflow roles
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, roles]
+              properties:
+                name: { type: string, example: Supervisor }
+                roles:
+                  type: array
+                  minItems: 1
+                  items: { $ref: '#/components/schemas/Role' }
+                  example: [documentation_analysis, payment_scheduling]
+      responses:
+        '201':
+          description: The created profile
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Profile' }
+        '422': { $ref: '#/components/responses/MissingField' }
+
+  /profiles/{id}:
+    get:
+      tags: [Users]
+      operationId: getProfile
+      summary: One profile
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string }, example: PRF-1 }
+      responses:
+        '200':
+          description: The profile
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Profile' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /users:
+    get:
+      tags: [Users]
+      operationId: listUsers
+      summary: Users, with their profile resolved
+      parameters:
+        - { name: profileId, in: query, required: false, schema: { type: string }, example: PRF-1 }
+      responses:
+        '200':
+          description: All users (or those of one profile)
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/User' }
+    post:
+      tags: [Users]
+      operationId: createUser
+      summary: Creates a user assigned to a profile. Its id is what goes in `x-user-id`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, profileId]
+              properties:
+                name: { type: string, example: Ana }
+                profileId: { type: string, example: PRF-1 }
+      responses:
+        '201':
+          description: The created user
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/MissingField' }
+
+  /users/{id}:
+    get:
+      tags: [Users]
+      operationId: getUser
+      summary: One user
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string }, example: USR-1 }
+      responses:
+        '200':
+          description: The user
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /users/{id}/profile:
+    put:
+      tags: [Users]
+      operationId: assignProfile
+      summary: Moves the user to another profile; their roles change with it
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string }, example: USR-1 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [profileId]
+              properties:
+                profileId: { type: string, example: PRF-2 }
+      responses:
+        '200':
+          description: The user with the new profile
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/MissingField' }
+
 components:
   parameters:
     EventId:
@@ -453,14 +575,7 @@ components:
       in: header
       required: true
       schema: { type: string }
-      example: paula
-    RolesScheduling:
-      name: x-user-roles
-      in: header
-      required: true
-      description: Comma-separated roles of the caller
-      schema: { type: string }
-      example: payment_scheduling
+      example: USR-2
     PendencyId:
       name: id
       in: path
@@ -472,27 +587,13 @@ components:
       in: header
       required: true
       schema: { type: string }
-      example: ana
-    RolesBranch:
-      name: x-user-roles
-      in: header
-      required: true
-      description: Comma-separated roles of the caller
-      schema: { type: string }
-      example: branch
+      example: USR-1
     UserIdDocumentation:
       name: x-user-id
       in: header
       required: true
       schema: { type: string }
-      example: diego
-    RolesDocumentation:
-      name: x-user-roles
-      in: header
-      required: true
-      description: Comma-separated roles. Use `payment_scheduling` while the pendency is in payment scheduling review.
-      schema: { type: string }
-      example: documentation_analysis
+      example: USR-3
 
   responses:
     Event:
@@ -506,9 +607,9 @@ components:
         application/json:
           schema: { $ref: '#/components/schemas/Pendency' }
     Unauthorized:
-      description: Missing x-user-id header
+      description: Missing x-user-id header, or no user with that id
     NotFound:
-      description: Event or pendency not found
+      description: Event, pendency, user or profile not found
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
@@ -566,6 +667,20 @@ components:
               failed: ['role:payment_scheduling']
 
   schemas:
+    Profile:
+      type: object
+      properties:
+        id: { type: string, example: PRF-1 }
+        name: { type: string, example: Filial }
+        roles:
+          type: array
+          items: { $ref: '#/components/schemas/Role' }
+    User:
+      type: object
+      properties:
+        id: { type: string, example: USR-1 }
+        name: { type: string, example: Ana }
+        profile: { $ref: '#/components/schemas/Profile' }
     EventType:
       type: string
       enum: [resolve_documentation, supplier_onboarding, ad_hoc]
