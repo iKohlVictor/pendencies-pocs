@@ -1,0 +1,622 @@
+openapi: 3.0.3
+info:
+  title: Pendencies API
+  version: 0.0.1
+  description: |
+    Demo backend that uses the machine-flow lib to drive two workflows: an event's release
+    and the review of each pendency inside it.
+
+    An event can only be scheduled once all its pendencies are resolved (a guard on the release
+    machine), and it is completed when it is `scheduled` AND its pendencies are still all resolved.
+
+    Identity is demo-only and travels in two headers:
+    `x-user-id` (any name) and `x-user-roles` (`branch`, `documentation_analysis` or `payment_scheduling`).
+servers:
+  - url: http://localhost:3000
+tags:
+  - name: Events
+  - name: Event release
+  - name: Pendencies
+  - name: Branch actions
+  - name: Review actions
+  - name: Notifications
+
+paths:
+  /events:
+    post:
+      tags: [Events]
+      operationId: openEvent
+      summary: Open an event (born not scheduled)
+      parameters:
+        - $ref: '#/components/parameters/UserIdScheduling'
+        - $ref: '#/components/parameters/RolesScheduling'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+            example: { name: Resolver documentações }
+      responses:
+        '201': { $ref: '#/components/responses/Event' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/MissingField' }
+    get:
+      tags: [Events]
+      operationId: listEvents
+      summary: List all events
+      responses:
+        '200':
+          description: All events
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Event' }
+
+  /events/{id}:
+    get:
+      tags: [Events]
+      operationId: getEvent
+      summary: Get one event with release status, pendencies status and completion
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+      responses:
+        '200': { $ref: '#/components/responses/Event' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /events/{id}/pendencies:
+    post:
+      tags: [Events]
+      operationId: openPendencyInEvent
+      summary: Open a pendency inside the event (born pending with the branch)
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+        - $ref: '#/components/parameters/UserIdDocumentation'
+        - $ref: '#/components/parameters/RolesDocumentation'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title]
+              properties:
+                title: { type: string }
+            example: { title: Nota fiscal ausente }
+      responses:
+        '201': { $ref: '#/components/responses/Pendency' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/MissingField' }
+    get:
+      tags: [Events]
+      operationId: listEventPendencies
+      summary: List the pendencies of the event
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+      responses:
+        '200':
+          description: Pendencies of the event
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Pendency' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /events/{id}/actions:
+    get:
+      tags: [Event release]
+      operationId: listEventActions
+      summary: Release actions the caller may take right now
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+        - $ref: '#/components/parameters/UserIdScheduling'
+        - $ref: '#/components/parameters/RolesScheduling'
+      responses:
+        '200':
+          description: Available release actions for this actor
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  actions:
+                    type: array
+                    items: { $ref: '#/components/schemas/ReleaseAction' }
+              example: { actions: [START_ANALYSIS] }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /events/{id}/start-analysis:
+    post:
+      tags: [Event release]
+      operationId: startEventAnalysis
+      summary: Payment scheduling starts the analysis (not_scheduled -> in_analysis)
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+        - $ref: '#/components/parameters/UserIdScheduling'
+        - $ref: '#/components/parameters/RolesScheduling'
+      responses:
+        '200': { $ref: '#/components/responses/Event' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ActionDenied' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/ActionDenied' }
+
+  /events/{id}/return:
+    post:
+      tags: [Event release]
+      operationId: returnEvent
+      summary: Payment scheduling returns it (in_analysis -> not_scheduled)
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+        - $ref: '#/components/parameters/UserIdScheduling'
+        - $ref: '#/components/parameters/RolesScheduling'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason: { type: string }
+            example: { reason: Aguardando arquivo do banco }
+      responses:
+        '200': { $ref: '#/components/responses/Event' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ActionDenied' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/ActionDenied' }
+
+  /events/{id}/schedule:
+    post:
+      tags: [Event release]
+      operationId: scheduleEvent
+      summary: Payment scheduling schedules it (in_analysis -> scheduled)
+      description: |
+        Guarded: refused with 422 `GUARD_FAILED` (`pendencies-resolved`) while any pendency of the event is open.
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+        - $ref: '#/components/parameters/UserIdScheduling'
+        - $ref: '#/components/parameters/RolesScheduling'
+      responses:
+        '200': { $ref: '#/components/responses/Event' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ActionDenied' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/ActionDenied' }
+        '422': { $ref: '#/components/responses/GuardFailed' }
+
+  /pendencies:
+    get:
+      tags: [Pendencies]
+      operationId: listPendencies
+      summary: List all pendencies
+      responses:
+        '200':
+          description: All pendencies
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Pendency' }
+
+  /pendencies/{id}:
+    get:
+      tags: [Pendencies]
+      operationId: getPendency
+      summary: Get one pendency with its full history
+      parameters:
+        - $ref: '#/components/parameters/PendencyId'
+      responses:
+        '200': { $ref: '#/components/responses/Pendency' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /pendencies/{id}/actions:
+    get:
+      tags: [Pendencies]
+      operationId: listAvailableActions
+      summary: Actions the caller may take right now
+      parameters:
+        - $ref: '#/components/parameters/PendencyId'
+        - $ref: '#/components/parameters/UserIdBranch'
+        - $ref: '#/components/parameters/RolesBranch'
+      responses:
+        '200':
+          description: Available actions for this actor in the current state
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  actions:
+                    type: array
+                    items: { $ref: '#/components/schemas/Action' }
+              example: { actions: [ATTACH_DOCUMENT, RESOLVE_WITH_COMMENT, REQUEST_EXCEPTION] }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /pendencies/{id}/attach-document:
+    post:
+      tags: [Branch actions]
+      operationId: attachDocument
+      summary: Branch attaches a document (goes to documentation review)
+      parameters:
+        - $ref: '#/components/parameters/PendencyId'
+        - $ref: '#/components/parameters/UserIdBranch'
+        - $ref: '#/components/parameters/RolesBranch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [documentId]
+              properties:
+                documentId: { type: string }
+            example: { documentId: DOC-1 }
+      responses:
+        '200': { $ref: '#/components/responses/Pendency' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ActionDenied' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/ActionDenied' }
+        '422': { $ref: '#/components/responses/MissingField' }
+
+  /pendencies/{id}/resolve:
+    post:
+      tags: [Branch actions]
+      operationId: resolveWithComment
+      summary: Branch resolves with a comment (goes to documentation review)
+      parameters:
+        - $ref: '#/components/parameters/PendencyId'
+        - $ref: '#/components/parameters/UserIdBranch'
+        - $ref: '#/components/parameters/RolesBranch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [comment]
+              properties:
+                comment: { type: string }
+            example: { comment: Já regularizado com o fornecedor }
+      responses:
+        '200': { $ref: '#/components/responses/Pendency' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ActionDenied' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/ActionDenied' }
+        '422': { $ref: '#/components/responses/MissingField' }
+
+  /pendencies/{id}/request-exception:
+    post:
+      tags: [Branch actions]
+      operationId: requestException
+      summary: Branch requests an exception (goes to payment scheduling first)
+      parameters:
+        - $ref: '#/components/parameters/PendencyId'
+        - $ref: '#/components/parameters/UserIdBranch'
+        - $ref: '#/components/parameters/RolesBranch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [justification]
+              properties:
+                justification: { type: string }
+            example: { justification: Fornecedor só emite a nota dia 20 }
+      responses:
+        '200': { $ref: '#/components/responses/Pendency' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ActionDenied' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/ActionDenied' }
+        '422': { $ref: '#/components/responses/MissingField' }
+
+  /pendencies/{id}/approve:
+    post:
+      tags: [Review actions]
+      operationId: approve
+      summary: Current reviewer approves
+      description: |
+        Who may approve depends on the state: `payment_scheduling` while in
+        `in_payment_scheduling_review`, `documentation_analysis` while in `in_documentation_review`.
+      parameters:
+        - $ref: '#/components/parameters/PendencyId'
+        - $ref: '#/components/parameters/UserIdDocumentation'
+        - $ref: '#/components/parameters/RolesDocumentation'
+      responses:
+        '200': { $ref: '#/components/responses/Pendency' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ActionDenied' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/ActionDenied' }
+
+  /pendencies/{id}/reject:
+    post:
+      tags: [Review actions]
+      operationId: reject
+      summary: Current reviewer rejects with a reason (goes back to the branch)
+      parameters:
+        - $ref: '#/components/parameters/PendencyId'
+        - $ref: '#/components/parameters/UserIdDocumentation'
+        - $ref: '#/components/parameters/RolesDocumentation'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason: { type: string }
+            example: { reason: Falta o comprovante }
+      responses:
+        '200': { $ref: '#/components/responses/Pendency' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ActionDenied' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/ActionDenied' }
+        '422': { $ref: '#/components/responses/MissingField' }
+
+  /notifications:
+    get:
+      tags: [Notifications]
+      operationId: listNotifications
+      summary: Notifications the workflow would have sent
+      parameters:
+        - name: role
+          in: query
+          required: false
+          schema: { $ref: '#/components/schemas/Role' }
+      responses:
+        '200':
+          description: Notifications, oldest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Notification' }
+
+components:
+  parameters:
+    EventId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string }
+      example: EVT-1
+    UserIdScheduling:
+      name: x-user-id
+      in: header
+      required: true
+      schema: { type: string }
+      example: paula
+    RolesScheduling:
+      name: x-user-roles
+      in: header
+      required: true
+      description: Comma-separated roles of the caller
+      schema: { type: string }
+      example: payment_scheduling
+    PendencyId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string }
+      example: PEND-1
+    UserIdBranch:
+      name: x-user-id
+      in: header
+      required: true
+      schema: { type: string }
+      example: ana
+    RolesBranch:
+      name: x-user-roles
+      in: header
+      required: true
+      description: Comma-separated roles of the caller
+      schema: { type: string }
+      example: branch
+    UserIdDocumentation:
+      name: x-user-id
+      in: header
+      required: true
+      schema: { type: string }
+      example: diego
+    RolesDocumentation:
+      name: x-user-roles
+      in: header
+      required: true
+      description: Comma-separated roles. Use `payment_scheduling` while the pendency is in payment scheduling review.
+      schema: { type: string }
+      example: documentation_analysis
+
+  responses:
+    Event:
+      description: The event after the operation
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Event' }
+    Pendency:
+      description: The pendency after the operation
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Pendency' }
+    Unauthorized:
+      description: Missing x-user-id header
+    NotFound:
+      description: Event or pendency not found
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    MissingField:
+      description: A required field is missing
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example:
+            statusCode: 422
+            error: MissingFieldError
+            message: Field "reason" is required
+            field: reason
+    GuardFailed:
+      description: The state machine refused the action because the data does not allow it (`GUARD_FAILED`)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example:
+            statusCode: 422
+            error: ActionDeniedError
+            message: 'Action denied on Event EVT-1: GUARD_FAILED'
+            reason:
+              code: GUARD_FAILED
+              state: in_analysis
+              event: SCHEDULE
+              failed: [pendencies-resolved]
+    ActionDenied:
+      description: |
+        The state machine refused the action.
+        403 = `FORBIDDEN` (wrong role for this step).
+        409 = `INVALID_EVENT` (action does not exist in the current state) or `FINAL_STATE` (already completed).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example:
+            statusCode: 403
+            error: ActionDeniedError
+            message: 'Action denied on Pendency PEND-1: FORBIDDEN'
+            reason:
+              code: FORBIDDEN
+              state: in_payment_scheduling_review
+              event: APPROVE
+              failed: ['role:payment_scheduling']
+
+  schemas:
+    Role:
+      type: string
+      enum: [branch, documentation_analysis, payment_scheduling]
+    Status:
+      type: string
+      enum: [pending_branch, in_payment_scheduling_review, in_documentation_review, completed]
+    Action:
+      type: string
+      enum: [ATTACH_DOCUMENT, RESOLVE_WITH_COMMENT, REQUEST_EXCEPTION, APPROVE, REJECT]
+    HistoryEntry:
+      type: object
+      required: [at, actorId, action, from, to]
+      properties:
+        at: { type: string, format: date-time }
+        actorId: { type: string }
+        action:
+          type: string
+          enum: [OPEN, ATTACH_DOCUMENT, RESOLVE_WITH_COMMENT, REQUEST_EXCEPTION, APPROVE, REJECT]
+        from:
+          type: string
+          nullable: true
+          description: Previous status (null for OPEN)
+        to: { $ref: '#/components/schemas/Status' }
+        detail: { type: string }
+    Pendency:
+      type: object
+      required: [id, eventId, title, status, documents, history, version]
+      properties:
+        id: { type: string, example: PEND-1 }
+        eventId: { type: string, example: EVT-1 }
+        title: { type: string }
+        status: { $ref: '#/components/schemas/Status' }
+        documents:
+          type: array
+          items: { type: string }
+        resolutionComment: { type: string }
+        exceptionJustification: { type: string }
+        rejectionReason:
+          type: string
+          description: Why it came back to the branch. Cleared when the branch acts again.
+        history:
+          type: array
+          items: { $ref: '#/components/schemas/HistoryEntry' }
+        version:
+          type: integer
+          description: Optimistic-locking counter
+    ReleaseStatus:
+      type: string
+      enum: [not_scheduled, in_analysis, scheduled]
+    ReleaseAction:
+      type: string
+      enum: [START_ANALYSIS, RETURN, SCHEDULE]
+    Event:
+      type: object
+      required: [id, name, releaseStatus, pendencies, completed, history, version]
+      properties:
+        id: { type: string, example: EVT-1 }
+        name: { type: string }
+        releaseStatus: { $ref: '#/components/schemas/ReleaseStatus' }
+        pendencies:
+          type: object
+          description: Derived from the event's pendencies on every read
+          required: [status, total, resolved]
+          properties:
+            status:
+              type: string
+              enum: [ok, pending]
+              description: ok when every pendency is resolved
+            total: { type: integer }
+            resolved: { type: integer }
+        completed:
+          type: boolean
+          description: true when releaseStatus is scheduled AND pendencies.status is ok
+        history:
+          type: array
+          items:
+            type: object
+            required: [at, actorId, action, from, to]
+            properties:
+              at: { type: string, format: date-time }
+              actorId: { type: string }
+              action:
+                type: string
+                enum: [OPEN, START_ANALYSIS, RETURN, SCHEDULE]
+              from:
+                type: string
+                nullable: true
+              to: { $ref: '#/components/schemas/ReleaseStatus' }
+              detail: { type: string }
+        version: { type: integer }
+    Notification:
+      type: object
+      required: [at, pendencyId, role, message]
+      properties:
+        at: { type: string, format: date-time }
+        pendencyId: { type: string }
+        role: { $ref: '#/components/schemas/Role' }
+        message: { type: string }
+    Error:
+      type: object
+      required: [statusCode, error, message]
+      properties:
+        statusCode: { type: integer }
+        error: { type: string }
+        message: { type: string }
+        field: { type: string }
+        reason:
+          type: object
+          description: Typed error returned by machine-flow
+          properties:
+            code:
+              type: string
+              enum: [UNKNOWN_STATE, FINAL_STATE, INVALID_EVENT, FORBIDDEN, GUARD_FAILED]
+            state: { type: string }
+            event: { type: string }
+            failed:
+              type: array
+              items: { type: string }

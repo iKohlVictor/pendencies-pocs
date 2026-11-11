@@ -1,0 +1,137 @@
+### Roteiro para a extensão REST Client (VS Code) ou o HTTP Client do JetBrains.
+### Parte 1: fluxo da pendência. Parte 2 (no fim): liberação do evento.
+### Suba a API (npm run start:dev) e execute de cima para baixo.
+@base = http://localhost:3000
+
+### 0. Abre o evento (nasce não programado)
+POST {{base}}/events
+content-type: application/json
+x-user-id: paula
+x-user-roles: payment_scheduling
+
+{ "name": "Resolver documentações" }
+
+### 1. Abre a pendência dentro do evento (nasce pendente com a filial)
+POST {{base}}/events/EVT-1/pendencies
+content-type: application/json
+x-user-id: diego
+x-user-roles: documentation_analysis
+
+{ "title": "Nota fiscal ausente" }
+
+### 2. O que a filial pode fazer agora?
+GET {{base}}/pendencies/PEND-1/actions
+x-user-id: ana
+x-user-roles: branch
+
+### 3. Filial solicita exceção -> vai para programação de pagamento
+POST {{base}}/pendencies/PEND-1/request-exception
+content-type: application/json
+x-user-id: ana
+x-user-roles: branch
+
+{ "justification": "fornecedor só emite a nota dia 20" }
+
+### 4. Documentação tenta aprovar antes da hora -> 403 FORBIDDEN
+POST {{base}}/pendencies/PEND-1/approve
+x-user-id: diego
+x-user-roles: documentation_analysis
+
+### 5. Programação aprova a exceção -> vai para análise de documentação
+POST {{base}}/pendencies/PEND-1/approve
+x-user-id: paula
+x-user-roles: payment_scheduling
+
+### 6. Documentação rejeita sem motivo -> 422
+POST {{base}}/pendencies/PEND-1/reject
+content-type: application/json
+x-user-id: diego
+x-user-roles: documentation_analysis
+
+{}
+
+### 7. Documentação rejeita com motivo -> volta para a filial
+POST {{base}}/pendencies/PEND-1/reject
+content-type: application/json
+x-user-id: diego
+x-user-roles: documentation_analysis
+
+{ "reason": "falta o comprovante" }
+
+### 8. Filial anexa o documento -> direto para análise de documentação
+POST {{base}}/pendencies/PEND-1/attach-document
+content-type: application/json
+x-user-id: ana
+x-user-roles: branch
+
+{ "documentId": "DOC-9" }
+
+### 9. Documentação aprova -> concluída
+POST {{base}}/pendencies/PEND-1/approve
+x-user-id: diego
+x-user-roles: documentation_analysis
+
+### 10. Qualquer ação depois disso -> 409 FINAL_STATE
+POST {{base}}/pendencies/PEND-1/approve
+x-user-id: diego
+x-user-roles: documentation_analysis
+
+### Pendência completa, com histórico
+GET {{base}}/pendencies/PEND-1
+
+### Notificações que o fluxo geraria (filtre com ?role=branch)
+GET {{base}}/notifications
+
+
+### ==================== Parte 2: liberação do evento ====================
+
+### 11. Evento: pendências OK (a única foi concluída), mas ainda não programado -> completed: false
+GET {{base}}/events/EVT-1
+
+### 12. O que a programação pode fazer agora?
+GET {{base}}/events/EVT-1/actions
+x-user-id: paula
+x-user-roles: payment_scheduling
+
+### 13. Filial tenta mexer na liberação -> 403 FORBIDDEN
+POST {{base}}/events/EVT-1/start-analysis
+x-user-id: ana
+x-user-roles: branch
+
+### 14. Programação inicia a análise -> in_analysis
+POST {{base}}/events/EVT-1/start-analysis
+x-user-id: paula
+x-user-roles: payment_scheduling
+
+### 15. Programação devolve -> not_scheduled
+POST {{base}}/events/EVT-1/return
+content-type: application/json
+x-user-id: paula
+x-user-roles: payment_scheduling
+
+{ "reason": "aguardando arquivo do banco" }
+
+### 16. Programação inicia a análise de novo
+POST {{base}}/events/EVT-1/start-analysis
+x-user-id: paula
+x-user-roles: payment_scheduling
+
+### 17. Programação programa -> scheduled e completed: true.
+### Só passa porque a pendência já foi concluída; com pendência em aberto daria 422 GUARD_FAILED (pendencies-resolved).
+POST {{base}}/events/EVT-1/schedule
+x-user-id: paula
+x-user-roles: payment_scheduling
+
+### 18. Nova pendência no evento já programado -> pendências voltam a "pending" e completed: false
+POST {{base}}/events/EVT-1/pendencies
+content-type: application/json
+x-user-id: diego
+x-user-roles: documentation_analysis
+
+{ "title": "Contrato sem assinatura" }
+
+### 19. Confere
+GET {{base}}/events/EVT-1
+
+### Pendências do evento
+GET {{base}}/events/EVT-1/pendencies

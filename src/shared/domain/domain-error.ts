@@ -1,0 +1,51 @@
+import type { TransitionError } from 'machine-flow';
+
+/** Base class for everything the domain can refuse. Mapped to HTTP at the edge. */
+export abstract class DomainError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = new.target.name;
+  }
+}
+
+export class NotFoundError extends DomainError {
+  constructor(
+    public readonly entity: string,
+    public readonly id: string,
+  ) {
+    super(`${entity} ${id} not found`);
+  }
+}
+
+/** A state machine refused the action. Carries the lib's typed error as-is. */
+export class ActionDeniedError extends DomainError {
+  constructor(
+    public readonly entity: string,
+    public readonly id: string,
+    public readonly reason: TransitionError,
+  ) {
+    super(`Action denied on ${entity} ${id}: ${reason.code}`);
+  }
+}
+
+export class MissingFieldError extends DomainError {
+  constructor(public readonly field: string) {
+    super(`Field "${field}" is required`);
+  }
+}
+
+/** Someone else changed the record between our read and our write. */
+export class ConcurrencyError extends DomainError {
+  constructor(
+    public readonly entity: string,
+    public readonly id: string,
+  ) {
+    super(`${entity} ${id} was modified concurrently`);
+  }
+}
+
+export function required(field: string, value: string | undefined): string {
+  const trimmed = typeof value === 'string' ? value.trim() : '';
+  if (!trimmed) throw new MissingFieldError(field);
+  return trimmed;
+}
