@@ -1,0 +1,46 @@
+{
+  "name": "machine-flow",
+  "version": "0.0.1",
+  "description": "Stateless state machine for approval flows: states, transitions, policies, guards and effects.",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "example": "tsx examples/venda.ts",
+    "example:pendencia": "tsx examples/pendencia.ts",
+    "prepublishOnly": "pnpm typecheck && pnpm test && pnpm build"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "tsup": "^9.0.0",
+    "tsx": "^4.23.15",
+    "typescript": "^6.0.3",
+    "vitest": "^5.1.0"
+  },
+  "private": true
+}
