@@ -1,8 +1,8 @@
-import { Body, Controller, Get, HttpCode, Inject, Param, Post, Query, UseFilters } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Inject, Param, Post, Put, Query, UseFilters } from '@nestjs/common';
 import type { Actor } from 'machine-flow';
 import { NOTIFICATION_OUTBOX, type NotificationOutbox } from '../application/notification-outbox.js';
 import { PendenciesService } from '../application/pendencies.service.js';
-import { listPendencyTypes } from '../domain/pendency-type.js';
+import { PendencyTypesService } from '../application/pendency-types.service.js';
 import { CurrentActor } from '../../shared/http/current-actor.decorator.js';
 import { DomainErrorFilter } from '../../shared/http/domain-error.filter.js';
 
@@ -65,11 +65,24 @@ export class PendenciesController {
 }
 
 @Controller('pendency-types')
+@UseFilters(DomainErrorFilter)
 export class PendencyTypesController {
-  /** The catalog: each type's default name and the flow it follows. */
+  constructor(private readonly types: PendencyTypesService) {}
+
+  /** The catalog: each type's default name, its flow and the version new pendencies start on. */
   @Get()
   list() {
-    return listPendencyTypes();
+    return this.types.list();
+  }
+
+  /** Points a type at a flow. version null = always the latest published one. */
+  @Put(':id/flow')
+  bind(
+    @Param('id') id: string,
+    @CurrentActor() _actor: Actor,
+    @Body() body: { flowId?: string; version?: number | null } = {},
+  ) {
+    return this.types.bind(id, body.flowId, body.version);
   }
 }
 

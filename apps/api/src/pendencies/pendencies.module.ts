@@ -1,4 +1,6 @@
 import { Module } from '@nestjs/common';
+import { FlowsModule } from '../flows/flows.module.js';
+import { PendencyTypesService } from './application/pendency-types.service.js';
 import { NOTIFICATION_OUTBOX } from './application/notification-outbox.js';
 import { PendenciesService } from './application/pendencies.service.js';
 import { PENDENCY_REPOSITORY } from './domain/pendency.repository.js';
@@ -11,10 +13,12 @@ import { InMemoryNotificationOutbox } from './infrastructure/in-memory-notificat
 import { InMemoryPendencyRepository } from './infrastructure/in-memory-pendency.repository.js';
 
 @Module({
+  imports: [FlowsModule],
   controllers: [PendenciesController, PendencyTypesController, NotificationsController],
   exports: [PendenciesService],
   providers: [
     PendenciesService,
+    PendencyTypesService,
     // Swap these two lines for real adapters (TypeORM, SQS...) and nothing else changes.
     { provide: PENDENCY_REPOSITORY, useClass: InMemoryPendencyRepository },
     { provide: NOTIFICATION_OUTBOX, useClass: InMemoryNotificationOutbox },

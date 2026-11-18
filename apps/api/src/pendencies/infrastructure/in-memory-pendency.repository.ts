@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Pendency, type PendencySnapshot } from '../domain/pendency.js';
+import type { Pendency, PendencySnapshot } from '../domain/pendency.js';
 import { ConcurrencyError } from '../../shared/domain/domain-error.js';
 import type { PendencyRepository } from '../domain/pendency.repository.js';
 
@@ -18,17 +18,17 @@ export class InMemoryPendencyRepository implements PendencyRepository {
     return `PEND-${this.sequence}`;
   }
 
-  async findById(id: string): Promise<Pendency | null> {
+  async findById(id: string): Promise<PendencySnapshot | null> {
     const row = this.rows.get(id);
-    return row ? Pendency.restore(row) : null;
+    return row ? structuredClone(row) : null;
   }
 
-  async findAll(): Promise<Pendency[]> {
-    return [...this.rows.values()].map((row) => Pendency.restore(row));
+  async findAll(): Promise<PendencySnapshot[]> {
+    return [...this.rows.values()].map((row) => structuredClone(row));
   }
 
-  async findByEventId(eventId: string): Promise<Pendency[]> {
-    return [...this.rows.values()].filter((row) => row.eventId === eventId).map((row) => Pendency.restore(row));
+  async findByEventId(eventId: string): Promise<PendencySnapshot[]> {
+    return [...this.rows.values()].filter((row) => row.eventId === eventId).map((row) => structuredClone(row));
   }
 
   async save(pendency: Pendency): Promise<void> {

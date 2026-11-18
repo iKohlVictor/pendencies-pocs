@@ -12,7 +12,8 @@
     "start:prod": "node dist/main",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "dev": "nest start --watch"
   },
   "dependencies": {
     "@nestjs/common": "^12.0.1",

@@ -1,7 +1,7 @@
 import { Component, computed, effect, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { Api } from '../core/api';
-import { PENDENCY_STATUS_LABEL, Pendency, PendencyStatus } from '../core/models';
+import { Pendency } from '../core/models';
 
 @Component({
   selector: 'app-pendencies-page',
@@ -13,8 +13,8 @@ import { PENDENCY_STATUS_LABEL, Pendency, PendencyStatus } from '../core/models'
         Status
         <select (change)="filter.set($any($event.target).value)">
           <option value="">todos</option>
-          @for (s of statuses; track s) {
-            <option [value]="s">{{ statusLabel[s] }}</option>
+          @for (s of statuses(); track s[0]) {
+            <option [value]="s[0]">{{ s[1] }}</option>
           }
         </select>
       </label>
@@ -29,8 +29,8 @@ import { PENDENCY_STATUS_LABEL, Pendency, PendencyStatus } from '../core/models'
               <td><code>{{ p.eventId }}</code></td>
               <td>{{ p.title }}</td>
               <td><code>{{ p.type }}</code></td>
-              <td>{{ p.flow }}</td>
-              <td><span class="badge st-{{ p.status }}">{{ statusLabel[p.status] }}</span></td>
+              <td>{{ p.flow }} <span class="muted small">v{{ p.flowVersion }}</span></td>
+              <td><span class="badge st-{{ p.status }}" [class.ok]="p.resolved">{{ p.statusLabel }}</span></td>
             </tr>
           } @empty {
             <tr><td colspan="6" class="muted">Nenhuma pendência.</td></tr>
@@ -42,9 +42,11 @@ import { PENDENCY_STATUS_LABEL, Pendency, PendencyStatus } from '../core/models'
 })
 export class PendenciesPage {
   private readonly api = inject(Api);
-  protected readonly statusLabel = PENDENCY_STATUS_LABEL;
-  protected readonly statuses = Object.keys(PENDENCY_STATUS_LABEL) as PendencyStatus[];
   protected readonly pendencies = signal<Pendency[]>([]);
+  /** Status presentes nas pendências (cada versão de fluxo tem os seus). */
+  protected readonly statuses = computed(() => [
+    ...new Map(this.pendencies().map((p) => [p.status, p.statusLabel] as const)).entries(),
+  ]);
   protected readonly filter = signal('');
   protected readonly visible = computed(() =>
     this.filter() ? this.pendencies().filter((p) => p.status === this.filter()) : this.pendencies(),

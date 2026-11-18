@@ -29,7 +29,8 @@
     "test:watch": "vitest",
     "example": "tsx examples/venda.ts",
     "example:pendencia": "tsx examples/pendencia.ts",
-    "prepublishOnly": "pnpm typecheck && pnpm test && pnpm build"
+    "prepublishOnly": "pnpm typecheck && pnpm test && pnpm build",
+    "dev": "tsup --watch"
   },
   "engines": {
     "node": ">=18"

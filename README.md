@@ -9,12 +9,17 @@ Monorepo pnpm workspace.
 
 ## Comandos (na raiz)
 
+Orquestrado com [Turborepo](https://turborepo.com) (`turbo.json`, `ui: tui`).
+
 ```bash
 pnpm install
-pnpm dev          # builda machine-flow e sobe a API em modo watch
-pnpm dev:web      # sobe o front em http://localhost:4200 (proxy /api -> :3000)
-pnpm test         # builda machine-flow e roda os testes de todos os packages
+pnpm dev          # TUI do turbo: machine-flow (tsup --watch) + API (:3000) + web (:4200, proxy /api -> :3000)
+pnpm dev:api      # só a API (+ machine-flow)
+pnpm dev:web      # só o front
+pnpm test         # builda dependências e roda os testes de todos os packages
 pnpm typecheck
 pnpm build
-pnpm --filter machine-flow test   # rodar algo em um package específico
+pnpm turbo run test --filter=machine-flow   # rodar algo em um package específico
 ```
+
+Na TUI: `↑/↓` troca de task, `i` entra no terminal da task (interativo), `Ctrl+Z` sai, `q`/`Ctrl+C` encerra.

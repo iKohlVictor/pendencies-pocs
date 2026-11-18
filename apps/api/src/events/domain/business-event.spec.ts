@@ -19,6 +19,15 @@ const denial = (fn: () => void) => {
   throw new Error('expected the action to be denied');
 };
 
+describe('BusinessEvent payment due date', () => {
+  it('is optional, validated and normalized to UTC', () => {
+    expect(open().toSnapshot()).not.toHaveProperty('paymentDueAt');
+    const event = BusinessEvent.open('EVT-1', 'ad_hoc', scheduling, undefined, '2026-11-20T10:00:00-03:00');
+    expect(event.paymentDueAt).toBe('2026-11-20T13:00:00.000Z');
+    expect(() => BusinessEvent.open('EVT-1', 'ad_hoc', scheduling, undefined, 'soon')).toThrow('paymentDueAt');
+  });
+});
+
 describe('BusinessEvent release workflow', () => {
   it('is born not scheduled, named after its type', () => {
     expect(open().toSnapshot()).toMatchObject({

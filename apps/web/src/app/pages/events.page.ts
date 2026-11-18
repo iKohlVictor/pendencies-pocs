@@ -25,6 +25,10 @@ import {
           }
         </select>
         <input name="name" [(ngModel)]="name" placeholder="Nome (opcional)" />
+        <label class="small">
+          Data de pagamento (opcional)
+          <input name="due" type="datetime-local" [(ngModel)]="paymentDueAt" />
+        </label>
         <button type="submit">Abrir</button>
       </form>
       <div class="catalog">
@@ -83,6 +87,8 @@ export class EventsPage {
 
   type: EventType = 'resolve_documentation';
   name = '';
+  /** datetime-local (hora local). Vazio = evento sem data de pagamento. */
+  paymentDueAt = '';
 
   constructor() {
     void this.loadCatalog();
@@ -111,15 +117,18 @@ export class EventsPage {
   }
 
   pendencyFlow(id: string) {
-    return this.pendencyTypes().find((p) => p.id === id)?.flow ?? '';
+    const t = this.pendencyTypes().find((p) => p.id === id);
+    return t ? `${t.flowId} v${t.effectiveVersion}` : '';
   }
 
   async open() {
     const body: Record<string, string> = { type: this.type };
     if (this.name.trim()) body['name'] = this.name.trim();
+    if (this.paymentDueAt) body['paymentDueAt'] = new Date(this.paymentDueAt).toISOString();
     const res = await this.api.post<AppEvent>('/events', body);
     if (res.ok) {
       this.name = '';
+      this.paymentDueAt = '';
       void this.router.navigate(['/eventos', res.body.id]);
     }
   }

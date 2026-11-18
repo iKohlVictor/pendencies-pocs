@@ -1,6 +1,6 @@
 import { availableEvents, transition } from 'machine-flow';
 import type { Actor } from 'machine-flow';
-import { ActionDeniedError } from '../../shared/domain/domain-error.js';
+import { ActionDeniedError, parseDateTime } from '../../shared/domain/domain-error.js';
 import type { PendenciesStatus } from './event-completion.js';
 import { EVENT_TYPES, type EventTypeId } from './event-type.js';
 import { eventReleaseMachine, type ReleaseAction, type ReleaseStatus } from './event-release.machine.js';
@@ -19,6 +19,11 @@ export interface BusinessEventSnapshot {
   /** Decides the default name and which pendencies are created with the event. */
   type: EventTypeId;
   name: string;
+  /**
+   * ISO date-time the order's payment is due. Optional; when set, every payment
+   * pendency of the event follows it (any date sent for a single pendency is ignored).
+   */
+  paymentDueAt?: string;
   releaseStatus: ReleaseStatus;
   history: ReleaseHistoryEntry[];
   /** Optimistic-locking counter, bumped by the repository on every save. */
@@ -38,12 +43,13 @@ export class BusinessEvent {
   private constructor(private state: BusinessEventSnapshot) {}
 
   /** The name defaults to the type's name; pass one to override it. */
-  static open(id: string, type: EventTypeId, openedBy: Actor, name?: string): BusinessEvent {
+  static open(id: string, type: EventTypeId, openedBy: Actor, name?: string, paymentDueAt?: string): BusinessEvent {
     const status = eventReleaseMachine.initial;
     return new BusinessEvent({
       id,
       type,
       name: name?.trim() || EVENT_TYPES[type].name,
+      ...(paymentDueAt?.trim() ? { paymentDueAt: parseDateTime('paymentDueAt', paymentDueAt) } : {}),
       releaseStatus: status,
       history: [{ at: now(), actorId: openedBy.id, action: 'OPEN', from: null, to: status }],
       version: 0,
@@ -56,6 +62,10 @@ export class BusinessEvent {
 
   get id(): string {
     return this.state.id;
+  }
+
+  get paymentDueAt(): string | undefined {
+    return this.state.paymentDueAt;
   }
 
   get releaseStatus(): ReleaseStatus {

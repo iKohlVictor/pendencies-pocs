@@ -14,6 +14,7 @@ import { ROLE_LABEL, User } from './core/models';
         <a routerLink="/eventos" routerLinkActive="active">Eventos</a>
         <a routerLink="/pendencias" routerLinkActive="active">Pendências</a>
         <a routerLink="/notificacoes" routerLinkActive="active">Notificações</a>
+        <a routerLink="/fluxos" routerLinkActive="active">Fluxos</a>
         <a routerLink="/usuarios" routerLinkActive="active">Usuários</a>
         <a routerLink="/roteiro" routerLinkActive="active">Roteiro</a>
       </nav>

@@ -1,25 +1,38 @@
+import { DatePipe } from '@angular/common';
 import { Component, effect, inject, input, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { Api, Session } from '../core/api';
-import { PENDENCY_ACTION_LABEL, PENDENCY_STATUS_LABEL, Pendency, PendencyAction } from '../core/models';
+import { PENDENCY_ACTION_LABEL, Pendency, PendencyAction } from '../core/models';
 import { HistoryTable, WhoCanAct } from '../core/shared';
 
 @Component({
   selector: 'app-pendency-detail-page',
-  imports: [FormsModule, RouterLink, HistoryTable, WhoCanAct],
+  imports: [DatePipe, FormsModule, RouterLink, HistoryTable, WhoCanAct],
   template: `
     @if (pendency(); as p) {
       <a [routerLink]="['/eventos', p.eventId]" class="back">← evento {{ p.eventId }}</a>
       <h1>{{ p.title }} <code>{{ p.id }}</code></h1>
       <div class="row">
-        <span class="badge st-{{ p.status }}">{{ statusLabel[p.status] }}</span>
+        <span class="badge st-{{ p.status }}" [class.ok]="p.resolved">{{ p.statusLabel }}</span>
         <span class="badge">tipo: <code>{{ p.type }}</code></span>
-        <span class="badge">fluxo: {{ p.flow }}</span>
-        <span class="muted small">v{{ p.version }}</span>
+        <a class="badge" [routerLink]="['/fluxos', p.flow]" [queryParams]="{ v: p.flowVersion, atual: p.status }"
+          title="Ver o grafo da versão em que esta pendência roda">
+          fluxo: {{ p.flow }} v{{ p.flowVersion }}
+        </a>
+        <span class="muted small" title="Contador de lock otimista">rev {{ p.version }}</span>
       </div>
 
       <dl class="facts">
+        @if (p.paymentDueAt) {
+          <dt>Vencimento do pagamento</dt>
+          <dd>
+            {{ p.paymentDueAt | date: 'dd/MM/yyyy HH:mm' }}
+            <span class="muted small">
+              ({{ withinPaymentWindow(p.paymentDueAt) ? 'dentro de 48h: análise + programação' : 'fora de 48h: só análise' }})
+            </span>
+          </dd>
+        }
         <dt>Documentos</dt><dd>{{ p.documents.length ? p.documents.join(', ') : '—' }}</dd>
         <dt>Comentário</dt><dd>{{ p.resolutionComment ?? '—' }}</dd>
         <dt>Justificativa da exceção</dt><dd>{{ p.exceptionJustification ?? '—' }}</dd>
@@ -72,7 +85,6 @@ export class PendencyDetailPage {
 
   private readonly api = inject(Api);
   protected readonly session = inject(Session);
-  protected readonly statusLabel = PENDENCY_STATUS_LABEL;
   protected readonly actionLabel = PENDENCY_ACTION_LABEL;
 
   protected readonly pendency = signal<Pendency | null>(null);
@@ -102,6 +114,11 @@ export class PendencyDetailPage {
         .get<{ actions: string[] }>(`/pendencies/${id}/actions`)
         .then((r) => this.available.set(r.ok ? r.body.actions : []));
     });
+  }
+
+  /** Mesmo critério do guard da API (decidido no momento em que a análise aprova). */
+  withinPaymentWindow(dueAt: string) {
+    return Date.parse(dueAt) - Date.now() <= 48 * 60 * 60 * 1000;
   }
 
   can(a: PendencyAction) {

@@ -1,117 +1,50 @@
-import { defineMachine, hasRole } from 'machine-flow';
-import type { Actor, EventsOf, Machine, StatesOf } from 'machine-flow';
-import { ROLE, type Role } from '../../shared/domain/roles.js';
+import type { Actor, Machine } from 'machine-flow';
+import type { Role } from '../../shared/domain/roles.js';
 
 /**
- * The pendency workflows. Each pendency type picks one of them (see
- * pendency-type.ts), so the same aggregate can follow different rules.
- *
- * standard:
- *   branch --(attach | resolve)-----------------> documentation review --approve--> completed
- *      |                                               ^        |
- *      +--(request exception)--> payment scheduling ---+        |
- *                                     |                         |
- *      <-------------- reject (with a reason) -------------------+
- *
- * direct: the same without the exception path (payment scheduling never takes part).
+ * Pendency workflows are data now: each one is a versioned JSON definition
+ * (see src/flows) compiled into a machine-flow Machine. This file keeps only
+ * what every workflow shares: what the machine sees and what it returns.
  */
 
-/** What the machine can see of the pendency (room for data-based guards later). */
+/** What the machine can see of the pendency. Guards in the catalog read these facts. */
 export interface PendencyFacts {
   id: string;
   documents: readonly string[];
+  /** ISO date-time. Only pendencies whose flow needs it have one. */
+  paymentDueAt?: string;
+  /** Evaluation time, passed in so the machine stays pure. */
+  now: Date;
 }
 
 /** Effects are data. The application layer decides how to deliver them. */
 export type PendencyEffect = { type: 'notify'; role: Role };
 
-const notify = (role: Role): PendencyEffect => ({ type: 'notify', role });
+/** The fixed set of actions a pendency supports. Each one has code (and a payload) behind it. */
+export const PENDENCY_ACTIONS = [
+  'ATTACH_DOCUMENT',
+  'RESOLVE_WITH_COMMENT',
+  'REQUEST_EXCEPTION',
+  'APPROVE',
+  'REJECT',
+] as const;
 
-const define = defineMachine<PendencyFacts, Actor, PendencyEffect>();
+export type PendencyAction = (typeof PENDENCY_ACTIONS)[number];
 
-// Pieces shared by both flows.
-const toDocumentationReview = {
-  to: 'in_documentation_review',
-  policies: [hasRole(ROLE.branch)],
-  effects: [notify(ROLE.documentationAnalysis)],
-} as const;
+/** States are free: each flow version names its own. */
+export type PendencyStatus = string;
 
-const documentationReview = {
-  on: {
-    APPROVE: { to: 'completed', policies: [hasRole(ROLE.documentationAnalysis)] },
-    REJECT: {
-      to: 'pending_branch',
-      policies: [hasRole(ROLE.documentationAnalysis)],
-      effects: [notify(ROLE.branch)],
-    },
-  },
-} as const;
+export type PendencyFlow = Machine<string, PendencyAction, PendencyFacts, Actor, PendencyEffect>;
 
-export const standardFlow = define({
-  id: 'pendency-standard',
-  initial: 'pending_branch',
-  states: {
-    pending_branch: {
-      on: {
-        ATTACH_DOCUMENT: toDocumentationReview,
-        RESOLVE_WITH_COMMENT: toDocumentationReview,
-        // An exception goes through payment scheduling first.
-        REQUEST_EXCEPTION: {
-          to: 'in_payment_scheduling_review',
-          policies: [hasRole(ROLE.branch)],
-          effects: [notify(ROLE.paymentScheduling)],
-        },
-      },
-    },
-    in_payment_scheduling_review: {
-      on: {
-        APPROVE: {
-          to: 'in_documentation_review',
-          policies: [hasRole(ROLE.paymentScheduling)],
-          effects: [notify(ROLE.documentationAnalysis)],
-        },
-        REJECT: {
-          to: 'pending_branch',
-          policies: [hasRole(ROLE.paymentScheduling)],
-          effects: [notify(ROLE.branch)],
-        },
-      },
-    },
-    in_documentation_review: documentationReview,
-    completed: { final: true },
-  },
-});
+/** A flow version ready to run. */
+export interface CompiledFlow {
+  flowId: string;
+  version: number;
+  machine: PendencyFlow;
+  /** Facts some guard of this version needs, so the pendency must carry them (e.g. paymentDueAt). */
+  requiredFacts: readonly FactName[];
+  /** State id -> human label, from the definition. */
+  labels: Readonly<Record<string, string>>;
+}
 
-export const directFlow = define({
-  id: 'pendency-direct',
-  initial: 'pending_branch',
-  states: {
-    pending_branch: {
-      on: {
-        ATTACH_DOCUMENT: toDocumentationReview,
-        RESOLVE_WITH_COMMENT: toDocumentationReview,
-      },
-    },
-    in_documentation_review: documentationReview,
-    completed: { final: true },
-  },
-});
-
-/** The standard flow is the superset: every status and action of any flow exists in it. */
-export type PendencyStatus = StatesOf<typeof standardFlow>;
-export type PendencyAction = EventsOf<typeof standardFlow>;
-
-// Compile-time proof of the line above. Adding a state only to directFlow breaks the build here.
-type Subset<A extends B, B> = A;
-export type DirectFlowFitsStandard = [
-  Subset<StatesOf<typeof directFlow>, PendencyStatus>,
-  Subset<EventsOf<typeof directFlow>, PendencyAction>,
-];
-
-export type PendencyFlowId = 'standard' | 'direct';
-export type PendencyFlow = Machine<string, string, PendencyFacts, Actor, PendencyEffect>;
-
-export const PENDENCY_FLOWS: Record<PendencyFlowId, PendencyFlow> = {
-  standard: standardFlow,
-  direct: directFlow,
-};
+export type FactName = 'paymentDueAt';

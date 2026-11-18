@@ -55,8 +55,26 @@ export class ConcurrencyError extends DomainError {
   }
 }
 
+/** Parses an ISO 8601 date-time and normalizes it to UTC (`toISOString`). */
+export function parseDateTime(field: string, value: string | undefined): string {
+  const text = required(field, value);
+  const time = Date.parse(text);
+  if (Number.isNaN(time)) throw new InvalidValueError(field, text, ['ISO 8601 date-time']);
+  return new Date(time).toISOString();
+}
+
 export function required(field: string, value: string | undefined): string {
   const trimmed = typeof value === 'string' ? value.trim() : '';
   if (!trimmed) throw new MissingFieldError(field);
   return trimmed;
+}
+
+/** Creating something whose id is already taken. */
+export class AlreadyExistsError extends DomainError {
+  constructor(
+    public readonly entity: string,
+    public readonly id: string,
+  ) {
+    super(`${entity} ${id} already exists`);
+  }
 }

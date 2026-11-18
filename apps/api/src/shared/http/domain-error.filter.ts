@@ -1,8 +1,11 @@
 import { Catch, HttpStatus, type ArgumentsHost, type ExceptionFilter } from '@nestjs/common';
 import type { Response } from 'express';
 import type { TransitionError } from 'machine-flow';
+import { InvalidFlowDefinitionError } from '../../flows/domain/compile-flow.js';
+import { NothingToPublishError } from '../../flows/domain/flow.js';
 import {
   ActionDeniedError,
+  AlreadyExistsError,
   ConcurrencyError,
   DomainError,
   InvalidValueError,
@@ -40,5 +43,10 @@ function toHttp(error: DomainError): { status: HttpStatus; body?: object } {
     return { status: HttpStatus.UNPROCESSABLE_ENTITY, body: { field: error.field, allowed: error.allowed } };
   }
   if (error instanceof ConcurrencyError) return { status: HttpStatus.CONFLICT };
+  if (error instanceof AlreadyExistsError) return { status: HttpStatus.CONFLICT };
+  if (error instanceof InvalidFlowDefinitionError) {
+    return { status: HttpStatus.UNPROCESSABLE_ENTITY, body: { issues: error.issues } };
+  }
+  if (error instanceof NothingToPublishError) return { status: HttpStatus.CONFLICT };
   return { status: HttpStatus.BAD_REQUEST };
 }

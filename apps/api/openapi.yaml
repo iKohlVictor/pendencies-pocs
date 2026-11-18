@@ -7,9 +7,14 @@ info:
     and the review of each pendency inside it.
 
     Events and pendencies are typed. An event type sets the event's name and the pendencies created
-    with it; a pendency type sets the pendency's name and the workflow it follows (`standard`, with an
-    exception path through payment scheduling, or `direct`, without it). See `/event-types` and
-    `/pendency-types`.
+    with it; a pendency type sets the pendency's name and the workflow it follows. See `/event-types`
+    and `/pendency-types`.
+
+    Workflows are versioned JSON definitions (`/flows`). They are edited as a draft and published as
+    an immutable version. A pendency records the flow and version it was opened on (`flow`,
+    `flowVersion`) and finishes on it, whatever gets published later. A pendency type follows the
+    latest published version of its flow, or a pinned one (`PUT /pendency-types/{id}/flow`).
+    States are free; actions, guards and roles come from a fixed catalog (`/flow-catalog`).
 
     An event can only be scheduled once all its pendencies are resolved (a guard on the release
     machine), and it is completed when it is `scheduled` AND its pendencies are still all resolved.
@@ -21,6 +26,7 @@ servers:
   - url: http://localhost:3000
 tags:
   - name: Catalog
+  - name: Flows
   - name: Events
   - name: Event release
   - name: Pendencies
@@ -55,7 +61,7 @@ paths:
     get:
       tags: [Catalog]
       operationId: listPendencyTypes
-      summary: Pendency types, with the flow each one follows
+      summary: Pendency types, with the flow and version new pendencies start on
       responses:
         '200':
           description: The catalog of pendency types
@@ -63,12 +69,196 @@ paths:
             application/json:
               schema:
                 type: array
-                items:
-                  type: object
-                  properties:
-                    id: { $ref: '#/components/schemas/PendencyType' }
-                    name: { type: string }
-                    flow: { $ref: '#/components/schemas/PendencyFlow' }
+                items: { $ref: '#/components/schemas/PendencyTypeView' }
+
+  /pendency-types/{id}/flow:
+    put:
+      tags: [Catalog]
+      operationId: bindPendencyTypeFlow
+      summary: Points a type at a flow, following its latest version (version null) or a pinned one
+      parameters:
+        - { name: id, in: path, required: true, schema: { $ref: '#/components/schemas/PendencyType' } }
+        - $ref: '#/components/parameters/UserIdDocumentation'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [flowId]
+              properties:
+                flowId: { type: string, example: standard }
+                version: { type: integer, nullable: true, description: null = always the latest published }
+      responses:
+        '200':
+          description: The type with its new binding
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PendencyTypeView' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { description: The flow has no published version yet }
+
+  /flow-catalog:
+    get:
+      tags: [Flows]
+      operationId: getFlowCatalog
+      summary: The blocks a flow can use (actions, guards, roles, effects)
+      responses:
+        '200':
+          description: The catalog
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FlowCatalog' }
+
+  /flows:
+    get:
+      tags: [Flows]
+      operationId: listFlows
+      summary: Every flow with its published versions
+      responses:
+        '200':
+          description: Flow summaries
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/FlowSummary' }
+    post:
+      tags: [Flows]
+      operationId: createFlow
+      summary: Creates a flow with a draft (a starter one when no definition is sent)
+      parameters:
+        - $ref: '#/components/parameters/UserIdDocumentation'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id]
+              properties:
+                id: { type: string, example: quick }
+                name: { type: string }
+                definition: { $ref: '#/components/schemas/FlowDefinition' }
+      responses:
+        '201': { $ref: '#/components/responses/Flow' }
+        '409': { description: A flow with this id already exists }
+        '422': { $ref: '#/components/responses/MissingField' }
+
+  /flows/validate:
+    post:
+      tags: [Flows]
+      operationId: validateFlow
+      summary: Checks a definition without saving it
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [definition]
+              properties:
+                definition: { $ref: '#/components/schemas/FlowDefinition' }
+      responses:
+        '200':
+          description: Every issue found (empty when valid)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  valid: { type: boolean }
+                  issues:
+                    type: array
+                    items: { $ref: '#/components/schemas/FlowIssue' }
+
+  /flows/{id}:
+    get:
+      tags: [Flows]
+      operationId: getFlow
+      summary: A flow with its draft and every published version
+      parameters:
+        - $ref: '#/components/parameters/FlowId'
+      responses:
+        '200': { $ref: '#/components/responses/Flow' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /flows/{id}/draft:
+    put:
+      tags: [Flows]
+      operationId: saveFlowDraft
+      summary: Saves the draft. Not validated until published.
+      parameters:
+        - $ref: '#/components/parameters/FlowId'
+        - $ref: '#/components/parameters/UserIdDocumentation'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [definition]
+              properties:
+                definition: { $ref: '#/components/schemas/FlowDefinition' }
+                name: { type: string }
+      responses:
+        '200': { $ref: '#/components/responses/Flow' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Flows]
+      operationId: discardFlowDraft
+      summary: Throws the draft away
+      parameters:
+        - $ref: '#/components/parameters/FlowId'
+        - $ref: '#/components/parameters/UserIdDocumentation'
+      responses:
+        '200': { $ref: '#/components/responses/Flow' }
+
+  /flows/{id}/publish:
+    post:
+      tags: [Flows]
+      operationId: publishFlow
+      summary: Validates the draft and freezes it as the next version
+      description: Pendencies already running keep their version. New ones follow the type's binding.
+      parameters:
+        - $ref: '#/components/parameters/FlowId'
+        - $ref: '#/components/parameters/UserIdDocumentation'
+      responses:
+        '200':
+          description: The new version
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FlowVersion' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: No draft to publish }
+        '422':
+          description: The draft is invalid
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Error'
+                  - type: object
+                    properties:
+                      issues:
+                        type: array
+                        items: { $ref: '#/components/schemas/FlowIssue' }
+
+  /flows/{id}/versions/{version}:
+    get:
+      tags: [Flows]
+      operationId: getFlowVersion
+      summary: One published (immutable) version
+      parameters:
+        - $ref: '#/components/parameters/FlowId'
+        - { name: version, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200':
+          description: The version
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FlowVersion' }
+        '404': { $ref: '#/components/responses/NotFound' }
 
   /events:
     post:
@@ -89,6 +279,13 @@ paths:
                 name:
                   type: string
                   description: Optional. Defaults to the type's name.
+                paymentDueAt:
+                  type: string
+                  format: date-time
+                  description: >-
+                    Optional. The order's payment due date. When set, every payment pendency of
+                    the event (predefined or added later) follows it, and any `paymentDueAt` sent
+                    when adding a pendency is ignored.
             example: { type: resolve_documentation }
       responses:
         '201': { $ref: '#/components/responses/Event' }
@@ -138,6 +335,14 @@ paths:
                 title:
                   type: string
                   description: Optional. Defaults to the type's name.
+                paymentDueAt:
+                  type: string
+                  format: date-time
+                  description: >-
+                    Required for `payment` when the event has no `paymentDueAt` (the event's
+                    date wins when it has one), ignored for other types. Due in 48h or less (or overdue) when
+                    documentation analysis approves => payment scheduling must approve too;
+                    otherwise documentation analysis alone completes it.
             example: { type: missing_invoice }
       responses:
         '201': { $ref: '#/components/responses/Pendency' }
@@ -564,6 +769,12 @@ paths:
 
 components:
   parameters:
+    FlowId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string }
+      example: standard
     EventId:
       name: id
       in: path
@@ -606,10 +817,15 @@ components:
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Pendency' }
+    Flow:
+      description: The flow
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Flow' }
     Unauthorized:
       description: Missing x-user-id header, or no user with that id
     NotFound:
-      description: Event, pendency, user or profile not found
+      description: Event, pendency, flow, flow version, user or profile not found
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
@@ -686,16 +902,127 @@ components:
       enum: [resolve_documentation, supplier_onboarding, ad_hoc]
     PendencyType:
       type: string
-      enum: [missing_invoice, unsigned_contract, registration_update]
+      enum: [missing_invoice, unsigned_contract, registration_update, payment]
     PendencyFlow:
       type: string
-      enum: [standard, direct]
+      description: Id of a flow (see /flows). Seeded with standard, direct and payment.
+      example: standard
     Role:
       type: string
       enum: [branch, documentation_analysis, payment_scheduling]
     Status:
       type: string
-      enum: [pending_branch, in_payment_scheduling_review, in_documentation_review, completed]
+      description: A state id of the pendency's flow version. Free; the seeded flows use these.
+      example: pending_branch
+    PendencyTypeView:
+      type: object
+      properties:
+        id: { $ref: '#/components/schemas/PendencyType' }
+        name: { type: string }
+        flowId: { type: string }
+        pinnedVersion: { type: integer, nullable: true, description: null = follows the latest }
+        effectiveVersion: { type: integer, description: Version new pendencies start on }
+    FlowDefinition:
+      type: object
+      required: [initial, states]
+      properties:
+        initial: { type: string }
+        states:
+          type: object
+          additionalProperties:
+            type: object
+            required: [label]
+            properties:
+              label: { type: string }
+              final: { type: boolean }
+              position:
+                type: object
+                properties: { x: { type: number }, y: { type: number } }
+              transitions:
+                type: array
+                description: >-
+                  Ways out of the state, in priority order. When an action happens, the first
+                  transition that lists it and whose roles and guards pass wins.
+                items:
+                  type: object
+                  required: [actions, to, roles]
+                  properties:
+                    actions:
+                      type: array
+                      minItems: 1
+                      description: Any of these actions takes the transition.
+                      items: { type: string, enum: [ATTACH_DOCUMENT, RESOLVE_WITH_COMMENT, REQUEST_EXCEPTION, APPROVE, REJECT] }
+                    to: { type: string }
+                    roles: { type: array, items: { $ref: '#/components/schemas/Role' } }
+                    guards: { type: array, items: { type: string, example: payment-due-within-48h } }
+                    notify: { type: array, items: { $ref: '#/components/schemas/Role' } }
+    FlowVersion:
+      type: object
+      properties:
+        version: { type: integer }
+        definition: { $ref: '#/components/schemas/FlowDefinition' }
+        publishedAt: { type: string, format: date-time }
+        publishedBy: { type: string }
+    Flow:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        draft:
+          type: object
+          nullable: true
+          allOf: [{ $ref: '#/components/schemas/FlowDefinition' }]
+          description: Work in progress. Null when there is nothing unpublished.
+        versions: { type: array, items: { $ref: '#/components/schemas/FlowVersion' } }
+        revision: { type: integer, description: Optimistic-locking counter }
+    FlowSummary:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        latestVersion: { type: integer }
+        hasDraft: { type: boolean }
+        versions:
+          type: array
+          items:
+            type: object
+            properties:
+              version: { type: integer }
+              publishedAt: { type: string, format: date-time }
+              publishedBy: { type: string }
+    FlowIssue:
+      type: object
+      properties:
+        message: { type: string }
+        state: { type: string }
+        action: { type: string }
+    FlowCatalog:
+      type: object
+      properties:
+        actions:
+          type: array
+          items:
+            type: object
+            properties: { id: { $ref: '#/components/schemas/Action' }, label: { type: string }, payload: { type: string } }
+        guards:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: string }
+              label: { type: string }
+              description: { type: string }
+              requiresFacts: { type: array, items: { type: string } }
+        roles:
+          type: array
+          items:
+            type: object
+            properties: { id: { $ref: '#/components/schemas/Role' }, label: { type: string } }
+        effects:
+          type: array
+          items:
+            type: object
+            properties: { id: { type: string }, label: { type: string } }
     Action:
       type: string
       enum: [ATTACH_DOCUMENT, RESOLVE_WITH_COMMENT, REQUEST_EXCEPTION, APPROVE, REJECT]
@@ -716,14 +1043,23 @@ components:
         detail: { type: string }
     Pendency:
       type: object
-      required: [id, eventId, type, flow, title, status, documents, history, version]
+      required: [id, eventId, type, flow, flowVersion, title, status, statusLabel, resolved, documents, history, version]
       properties:
         id: { type: string, example: PEND-1 }
         eventId: { type: string, example: EVT-1 }
         type: { $ref: '#/components/schemas/PendencyType' }
         flow: { $ref: '#/components/schemas/PendencyFlow' }
+        flowVersion:
+          type: integer
+          description: Flow version it was opened on. Fixed for the pendency's whole life.
         title: { type: string }
+        paymentDueAt:
+          type: string
+          format: date-time
+          description: Only when its flow version has a guard on the due date.
         status: { $ref: '#/components/schemas/Status' }
+        statusLabel: { type: string, description: Label of the status in its flow version }
+        resolved: { type: boolean, description: Reached a final state }
         documents:
           type: array
           items: { type: string }
@@ -751,6 +1087,10 @@ components:
         id: { type: string, example: EVT-1 }
         type: { $ref: '#/components/schemas/EventType' }
         name: { type: string }
+        paymentDueAt:
+          type: string
+          format: date-time
+          description: Only when set at creation. Followed by every payment pendency of the event.
         releaseStatus: { $ref: '#/components/schemas/ReleaseStatus' }
         pendencies:
           type: object

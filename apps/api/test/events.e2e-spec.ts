@@ -106,7 +106,41 @@ describe('Events API (e2e)', () => {
 
     const eventId = await openEvent();
     const pendency = await http().post(`/events/${eventId}/pendencies`).set(DOCUMENTATION).send({ type: 'nope' }).expect(422);
-    expect(pendency.body.allowed).toEqual(['missing_invoice', 'unsigned_contract', 'registration_update']);
+    expect(pendency.body.allowed).toEqual(['missing_invoice', 'unsigned_contract', 'registration_update', 'payment']);
+  });
+
+  describe('payment due date on the event', () => {
+    const dueIn = (hours: number) => new Date(Date.now() + hours * 3_600_000).toISOString();
+
+    it('every payment pendency of the event follows it', async () => {
+      const paymentDueAt = dueIn(10);
+      const event = await http().post('/events').set(SCHEDULING).send({ type: 'ad_hoc', paymentDueAt }).expect(201);
+      expect(event.body.paymentDueAt).toBe(paymentDueAt);
+
+      // No date of its own: inherits. A different date of its own: the event's still wins.
+      const add = (body: object) =>
+        http().post(`/events/${event.body.id}/pendencies`).set(DOCUMENTATION).send({ type: 'payment', ...body }).expect(201);
+      const inherited = await add({});
+      const overridden = await add({ paymentDueAt: dueIn(200) });
+      expect(inherited.body.paymentDueAt).toBe(paymentDueAt);
+      expect(overridden.body.paymentDueAt).toBe(paymentDueAt);
+
+      // ...and so it goes through payment scheduling (due within 48h).
+      const id = overridden.body.id as string;
+      await http().post(`/pendencies/${id}/attach-document`).set(BRANCH).send({ documentId: 'DOC-1' }).expect(200);
+      const approved = await http().post(`/pendencies/${id}/approve`).set(DOCUMENTATION).expect(200);
+      expect(approved.body.status).toBe('in_payment_scheduling_review');
+    });
+
+    it('rejects an invalid date', async () => {
+      const res = await http().post('/events').set(SCHEDULING).send({ type: 'ad_hoc', paymentDueAt: 'soon' }).expect(422);
+      expect(res.body.field).toBe('paymentDueAt');
+    });
+
+    it('without it, a payment pendency still needs its own date', async () => {
+      const eventId = await openEvent();
+      await http().post(`/events/${eventId}/pendencies`).set(DOCUMENTATION).send({ type: 'payment' }).expect(422);
+    });
   });
 
   it('exposes the catalog of event types', async () => {

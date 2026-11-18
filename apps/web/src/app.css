@@ -1,0 +1,61 @@
+/*
+ * Entry stylesheet.
+ * - The original hand-written CSS (styles.css) goes in the "legacy" layer, so Tailwind utilities win over it.
+ * - No Tailwind preflight: the existing pages keep their look.
+ * - Spartan (shadcn-like) tokens only apply inside `.spartan`, because the legacy CSS already uses
+ *   --primary, --border, --card and --muted with other meanings.
+ */
+@layer theme, base, legacy, spartan-reset, components, utilities;
+
+@import 'tailwindcss/theme.css' layer(theme);
+@import 'tailwindcss/utilities.css' layer(utilities);
+@import '@spartan-ng/brain/hlm-tailwind-preset.css';
+@import './styles.css' layer(legacy);
+
+@source './app';
+
+.spartan {
+  --radius: 0.625rem;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--foreground);
+}
+
+/* A scoped slice of Tailwind's preflight, so the legacy element styles don't leak into Spartan components. */
+@layer spartan-reset {
+  .spartan :where(*, ::before, ::after) {
+    border: 0 solid;
+    box-sizing: border-box;
+  }
+  .spartan :where(button, input, select, textarea) {
+    font: inherit;
+    color: inherit;
+    background: transparent;
+    padding: 0;
+    border-radius: 0;
+  }
+  .spartan :where(button:hover:not(:disabled)) {
+    border-color: inherit;
+  }
+  .spartan :where(h1, h2, h3, p) {
+    margin: 0;
+  }
+}

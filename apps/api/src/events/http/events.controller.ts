@@ -11,8 +11,11 @@ export class EventsController {
   constructor(private readonly service: EventsService) {}
 
   @Post()
-  open(@CurrentActor() actor: Actor, @Body() body: { type?: string; name?: string } = {}) {
-    return this.service.open(actor, body.type, body.name);
+  open(
+    @CurrentActor() actor: Actor,
+    @Body() body: { type?: string; name?: string; paymentDueAt?: string } = {},
+  ) {
+    return this.service.open(actor, body.type, body.name, body.paymentDueAt);
   }
 
   @Get()
@@ -35,9 +38,9 @@ export class EventsController {
   openPendency(
     @Param('id') id: string,
     @CurrentActor() actor: Actor,
-    @Body() body: { type?: string; title?: string } = {},
+    @Body() body: { type?: string; title?: string; paymentDueAt?: string } = {},
   ) {
-    return this.service.openPendency(id, actor, body.type, body.title);
+    return this.service.openPendency(id, actor, body.type, body.title, body.paymentDueAt);
   }
 
   @Get(':id/pendencies')

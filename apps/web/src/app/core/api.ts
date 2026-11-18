@@ -78,6 +78,10 @@ export class Api {
     return this.request<T>('PUT', path, body ?? {}, { ...opts, log: true });
   }
 
+  del<T>(path: string, opts: { userId?: string | null } = {}) {
+    return this.request<T>('DELETE', path, undefined, { ...opts, log: true });
+  }
+
   clearLog() {
     this.log.set([]);
   }

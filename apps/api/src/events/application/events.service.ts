@@ -29,14 +29,17 @@ export class EventsService {
     private readonly pendencies: PendenciesService,
   ) {}
 
-  /** Creates the event and, right after, every pendency its type predefines. */
-  async open(actor: Actor, type: string | undefined, name?: string): Promise<EventView> {
+  /**
+   * Creates the event and, right after, every pendency its type predefines.
+   * The payment due date, when given, is the one all its payment pendencies follow.
+   */
+  async open(actor: Actor, type: string | undefined, name?: string, paymentDueAt?: string): Promise<EventView> {
     const eventType = parseEventType(type);
-    const event = BusinessEvent.open(await this.events.nextId(), eventType, actor, name);
+    const event = BusinessEvent.open(await this.events.nextId(), eventType, actor, name, paymentDueAt);
     await this.events.save(event);
 
     for (const pendencyType of EVENT_TYPES[eventType].pendencyTypes) {
-      await this.pendencies.open(actor, event.id, pendencyType);
+      await this.pendencies.open(actor, event.id, pendencyType, undefined, event.paymentDueAt);
     }
     return this.get(event.id);
   }
@@ -56,10 +59,19 @@ export class EventsService {
 
   // --- pendencies inside the event ---
 
-  /** Adds one more pendency by hand, of any known type. */
-  async openPendency(id: string, actor: Actor, type: string | undefined, title?: string): Promise<PendencySnapshot> {
-    await this.load(id); // 404 if the event does not exist
-    return this.pendencies.open(actor, id, parsePendencyType(type), title);
+  /**
+   * Adds one more pendency by hand, of any known type. If the event has a payment
+   * due date, it wins over the one sent for the pendency.
+   */
+  async openPendency(
+    id: string,
+    actor: Actor,
+    type: string | undefined,
+    title?: string,
+    paymentDueAt?: string,
+  ): Promise<PendencySnapshot> {
+    const event = await this.load(id); // 404 if the event does not exist
+    return this.pendencies.open(actor, id, parsePendencyType(type), title, event.paymentDueAt ?? paymentDueAt);
   }
 
   async listPendencies(id: string): Promise<PendencySnapshot[]> {

@@ -14,9 +14,13 @@ describe('Pendencies API (e2e)', () => {
   const http = () => request(app.getHttpServer());
 
   /** Pendencies live inside an event, so every test starts by creating one. */
-  const open = async (type = 'missing_invoice') => {
+  const open = async (type = 'missing_invoice', extra: Record<string, string> = {}) => {
     const event = await http().post('/events').set(DOCUMENTATION).send({ type: 'ad_hoc' }).expect(201);
-    const res = await http().post(`/events/${event.body.id}/pendencies`).set(DOCUMENTATION).send({ type }).expect(201);
+    const res = await http()
+      .post(`/events/${event.body.id}/pendencies`)
+      .set(DOCUMENTATION)
+      .send({ type, ...extra })
+      .expect(201);
     return res.body.id as string;
   };
 
@@ -39,8 +43,11 @@ describe('Pendencies API (e2e)', () => {
       eventId: 'EVT-1',
       type: 'missing_invoice',
       flow: 'standard',
+      flowVersion: 1,
       title: 'Missing invoice',
       status: 'pending_branch',
+      statusLabel: 'Pendente com a filial',
+      resolved: false,
       documents: [],
       version: 1,
     });
@@ -147,9 +154,10 @@ describe('Pendencies API (e2e)', () => {
   it('exposes the catalog of pendency types', async () => {
     const res = await http().get('/pendency-types').expect(200);
     expect(res.body).toEqual([
-      { id: 'missing_invoice', name: 'Missing invoice', flow: 'standard' },
-      { id: 'unsigned_contract', name: 'Unsigned contract', flow: 'standard' },
-      { id: 'registration_update', name: 'Registration update', flow: 'direct' },
+      { id: 'missing_invoice', name: 'Missing invoice', flowId: 'standard', pinnedVersion: null, effectiveVersion: 1 },
+      { id: 'unsigned_contract', name: 'Unsigned contract', flowId: 'standard', pinnedVersion: null, effectiveVersion: 1 },
+      { id: 'registration_update', name: 'Registration update', flowId: 'direct', pinnedVersion: null, effectiveVersion: 1 },
+      { id: 'payment', name: 'Payment', flowId: 'payment', pinnedVersion: null, effectiveVersion: 1 },
     ]);
   });
 
@@ -161,5 +169,39 @@ describe('Pendencies API (e2e)', () => {
     const res = await http().get(`/pendencies/${id}`).expect(200);
     expect(res.body.history.map((h: { action: string }) => h.action)).toEqual(['OPEN', 'REQUEST_EXCEPTION', 'REJECT']);
     expect(res.body.version).toBe(3);
+  });
+
+  describe('payment pendency', () => {
+    const dueIn = (hours: number) => new Date(Date.now() + hours * 3_600_000).toISOString();
+
+    it('refuses to open without a due date', async () => {
+      const event = await http().post('/events').set(DOCUMENTATION).send({ type: 'ad_hoc' }).expect(201);
+      const res = await http().post(`/events/${event.body.id}/pendencies`).set(DOCUMENTATION).send({ type: 'payment' }).expect(422);
+      expect(res.body.field).toBe('paymentDueAt');
+    });
+
+    it('due in more than 48h: completed by documentation analysis', async () => {
+      const paymentDueAt = dueIn(72);
+      const id = await open('payment', { paymentDueAt });
+      await http().post(`/pendencies/${id}/attach-document`).set(BRANCH).send({ documentId: 'DOC-1' }).expect(200);
+
+      const approved = await http().post(`/pendencies/${id}/approve`).set(DOCUMENTATION).expect(200);
+      expect(approved.body).toMatchObject({ flow: 'payment', paymentDueAt, status: 'completed' });
+    });
+
+    it('due within 48h: documentation analysis, then payment scheduling', async () => {
+      const id = await open('payment', { paymentDueAt: dueIn(10) });
+      await http().post(`/pendencies/${id}/attach-document`).set(BRANCH).send({ documentId: 'DOC-1' }).expect(200);
+
+      const first = await http().post(`/pendencies/${id}/approve`).set(DOCUMENTATION).expect(200);
+      expect(first.body.status).toBe('in_payment_scheduling_review');
+      await http().post(`/pendencies/${id}/approve`).set(DOCUMENTATION).expect(403);
+
+      const notified = await http().get('/notifications?role=payment_scheduling').expect(200);
+      expect(notified.body.map((n: { pendencyId: string }) => n.pendencyId)).toContain(id);
+
+      const done = await http().post(`/pendencies/${id}/approve`).set(SCHEDULING).expect(200);
+      expect(done.body.status).toBe('completed');
+    });
   });
 });
